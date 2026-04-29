@@ -1,0 +1,1471 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>شجرة العائلة</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Inter:wght@400;500;600&family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    :root {
+      --bg:              #f4f3ef;
+      --node-bg:         #ede8ff;
+      --shadow-dark:     #c8bce8;
+      --shadow-light:    #ffffff;
+      --accent:          #6d28d9;
+      --accent-mid:      #7c3aed;
+      --accent-dim:      #9575c4;
+      --accent-deep:     #3b0764;
+      --sidebar-bg:      #eeede8;
+      --sidebar-border:  #d4d3ce;
+      --text-name:       #5b21b6;
+      --modal-overlay:   rgba(59, 7, 100, 0.35);
+      --mono:            'Share Tech Mono', 'Courier New', monospace;
+      --sans:            'Inter', sans-serif;
+      --arabic:          'Tajawal', sans-serif;
+      --radius:          8px;
+      --transition:      0.2s ease;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: var(--bg);
+      font-family: var(--mono);
+    }
+
+    /* Subtle scanlines */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background: repeating-linear-gradient(
+        to bottom,
+        transparent 0px,
+        transparent 1px,
+        rgba(109, 40, 217, 0.012) 1px,
+        rgba(109, 40, 217, 0.012) 2px
+      );
+      pointer-events: none;
+      z-index: 9999;
+    }
+
+    /* ---- LAYOUT ---- */
+    #app {
+      display: flex;
+      flex-direction: column;
+      width: 100%;
+      height: 100%;
+      direction: ltr;
+    }
+
+    #main-area {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    /* ---- SIDEBAR ---- */
+    #sidebar {
+      width: 260px;
+      min-width: 260px;
+      height: 100%;
+      background: var(--sidebar-bg);
+      border-right: 1px solid var(--sidebar-border);
+      display: flex;
+      flex-direction: column;
+      padding: 16px 14px;
+      gap: 14px;
+      overflow-y: auto;
+      z-index: 10;
+    }
+
+    #sidebar-header {
+      border-bottom: 1px solid var(--sidebar-border);
+      padding-bottom: 12px;
+    }
+
+    #sidebar-title {
+      font-family: var(--mono);
+      font-size: 15px;
+      font-weight: 400;
+      color: var(--accent-deep);
+      letter-spacing: 1px;
+      display: flex;
+      align-items: center;
+    }
+
+    .blink-cursor {
+      display: inline-block;
+      width: 9px;
+      height: 15px;
+      background: var(--accent);
+      margin-left: 2px;
+      vertical-align: middle;
+      animation: blink 1s step-end infinite;
+    }
+
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0; }
+    }
+
+    #sidebar-subtitle {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--accent-dim);
+      margin-top: 6px;
+      letter-spacing: 0.5px;
+    }
+
+    /* Boot sequence */
+    #boot-seq {
+      font-size: 10px;
+      color: var(--accent-dim);
+      line-height: 1.75;
+    }
+
+    #boot-seq .line-ready {
+      color: var(--accent);
+    }
+
+    /* ---- SIDEBAR ACTIONS ---- */
+    #sidebar-actions {
+      display: flex;
+      gap: 6px;
+    }
+
+    .action-btn {
+      flex: 1;
+      padding: 6px 8px;
+      background: var(--bg);
+      border: 1px solid var(--sidebar-border);
+      border-radius: var(--radius);
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--accent-mid);
+      cursor: pointer;
+      transition: background var(--transition), color var(--transition);
+      white-space: nowrap;
+    }
+
+    .action-btn:hover {
+      background: var(--node-bg);
+      color: var(--accent-deep);
+    }
+
+    .action-btn:active {
+      transform: translateY(1px);
+    }
+
+    /* ---- SIDEBAR SEARCH ---- */
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    #search-label {
+      font-size: 10px;
+      color: var(--accent-dim);
+      letter-spacing: 1px;
+    }
+
+    #search-input {
+      width: 100%;
+      padding: 7px 10px;
+      background: var(--bg);
+      border: 1px solid var(--sidebar-border);
+      border-radius: var(--radius);
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--accent-deep);
+      outline: none;
+      caret-color: var(--accent);
+      transition: border-color var(--transition), box-shadow var(--transition);
+    }
+
+    #search-input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(109, 40, 217, 0.15);
+    }
+
+    #search-input::placeholder {
+      color: var(--accent-dim);
+    }
+
+    /* Search results / member list */
+    #search-results {
+      flex: 1;
+      overflow-y: auto;
+    }
+
+    #search-results::-webkit-scrollbar { width: 3px; }
+    #search-results::-webkit-scrollbar-track { background: transparent; }
+    #search-results::-webkit-scrollbar-thumb { background: var(--sidebar-border); border-radius: 2px; }
+
+    #results-label {
+      font-size: 10px;
+      color: var(--accent-dim);
+      letter-spacing: 1px;
+      margin-bottom: 6px;
+    }
+
+    .search-result-item {
+      padding: 4px 2px;
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--accent-mid);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: color var(--transition);
+    }
+
+    .search-result-item:hover {
+      color: var(--accent-deep);
+    }
+
+    .result-gen {
+      font-size: 10px;
+      color: var(--accent-dim);
+      width: 32px;
+      flex-shrink: 0;
+    }
+
+    .result-dot {
+      display: none;
+    }
+
+    .search-empty {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--accent-dim);
+      padding: 8px 0;
+    }
+
+    /* ---- CANVAS ---- */
+    #canvas-container {
+      flex: 1;
+      height: 100%;
+      position: relative;
+      overflow: hidden;
+      background: var(--bg);
+    }
+
+    /* Dot grid overlay */
+    #canvas-container::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image: radial-gradient(rgba(109, 40, 217, 0.05) 1px, transparent 1px);
+      background-size: 36px 36px;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    #tree-svg {
+      width: 100%;
+      height: 100%;
+      cursor: grab;
+      position: relative;
+      z-index: 1;
+    }
+
+    #tree-svg:active {
+      cursor: grabbing;
+    }
+
+    /* ---- SVG NODE STYLES ---- */
+    .node-group {
+      cursor: pointer;
+    }
+
+    .node-rect {
+      filter:
+        drop-shadow(5px 5px 6px #c8bce8)
+        drop-shadow(-5px -5px 6px #ffffff);
+      transition: filter 0.2s ease;
+    }
+
+    .node-group:hover .node-rect {
+      filter:
+        drop-shadow(5px 5px 6px #c8bce8)
+        drop-shadow(-5px -5px 6px #ffffff)
+        drop-shadow(0 0 10px rgba(139, 92, 246, 0.3));
+    }
+
+    .node-text {
+      pointer-events: all;
+      cursor: text;
+      font-family: var(--sans);
+      font-size: 13px;
+      font-weight: 600;
+      fill: #5b21b6;
+      text-anchor: start;
+      dominant-baseline: middle;
+      unicode-bidi: plaintext;
+    }
+
+    .node-gender-icon {
+      pointer-events: none;
+      font-size: 11px;
+      fill: rgba(109, 40, 217, 0.4);
+      text-anchor: middle;
+    }
+
+    .expand-indicator {
+      pointer-events: none;
+    }
+
+    .link-line {
+      fill: none;
+      stroke-width: 1.5;
+      opacity: 0.65;
+    }
+
+    /* Logged-in user ring */
+    .node-logged-in .node-rect {
+      stroke: #7c3aed !important;
+      stroke-width: 2px !important;
+      filter:
+        drop-shadow(5px 5px 6px #c8bce8)
+        drop-shadow(-5px -5px 6px #ffffff)
+        drop-shadow(0 0 14px rgba(139, 92, 246, 0.4)) !important;
+    }
+
+    /* Search highlight pulse */
+    @keyframes pulse-highlight {
+      0%   { stroke: #7c3aed; stroke-width: 2px; filter: drop-shadow(0 0 8px rgba(139,92,246,0.6)); }
+      50%  { stroke: #a78bfa; stroke-width: 3px; filter: drop-shadow(0 0 16px rgba(139,92,246,0.8)); }
+      100% { stroke: #7c3aed; stroke-width: 2px; filter: drop-shadow(0 0 8px rgba(139,92,246,0.6)); }
+    }
+
+    .node-highlighted .node-rect {
+      animation: pulse-highlight 1s ease-in-out 3;
+    }
+
+    /* Ancestor path highlight — amber glow */
+    .node-on-path .node-rect {
+      stroke: #f59e0b !important;
+      stroke-width: 2px !important;
+      filter:
+        drop-shadow(5px 5px 6px #c8bce8)
+        drop-shadow(-5px -5px 6px #ffffff)
+        drop-shadow(0 0 12px rgba(245, 158, 11, 0.45)) !important;
+    }
+
+    /* Selected node — brighter amber, stronger glow */
+    .node-selected .node-rect {
+      stroke: #f59e0b !important;
+      stroke-width: 2.5px !important;
+      filter:
+        drop-shadow(5px 5px 6px #c8bce8)
+        drop-shadow(-5px -5px 6px #ffffff)
+        drop-shadow(0 0 20px rgba(245, 158, 11, 0.7)) !important;
+    }
+
+    /* ---- NODE PANEL ---- */
+    #node-panel {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%) translateY(100px);
+      background: var(--sidebar-bg);
+      color: var(--accent-deep);
+      border: 1px solid var(--sidebar-border);
+      border-radius: 14px;
+      padding: 12px 18px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      box-shadow: 5px 5px 12px var(--shadow-dark), -5px -5px 12px var(--shadow-light);
+      z-index: 100;
+      transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.3s ease;
+      opacity: 0;
+      pointer-events: none;
+      direction: rtl;
+    }
+
+    #node-panel.visible {
+      transform: translateX(-50%) translateY(0);
+      opacity: 1;
+      pointer-events: all;
+    }
+
+    #panel-name {
+      font-family: var(--sans);
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--accent-deep);
+      min-width: 80px;
+    }
+
+    #panel-divider {
+      width: 1px;
+      height: 24px;
+      background: var(--sidebar-border);
+    }
+
+    .panel-btn {
+      padding: 7px 14px;
+      border-radius: var(--radius);
+      border: 1px solid var(--sidebar-border);
+      cursor: pointer;
+      font-family: var(--arabic);
+      font-size: 13px;
+      font-weight: 500;
+      transition: background var(--transition), transform var(--transition);
+      white-space: nowrap;
+      background: var(--bg);
+      color: var(--accent-deep);
+    }
+
+    .panel-btn:hover { transform: translateY(-1px); background: var(--node-bg); }
+    .panel-btn:active { transform: translateY(0); }
+
+    #btn-add-relative {
+      background: var(--accent);
+      color: #fff;
+      border-color: var(--accent);
+    }
+
+    #btn-add-relative:hover { background: var(--accent-mid); }
+
+    #btn-close-panel {
+      background: transparent;
+      color: var(--accent-dim);
+      padding: 5px 9px;
+      font-size: 16px;
+      line-height: 1;
+      border-color: transparent;
+    }
+
+    #btn-close-panel:hover { color: var(--accent-deep); }
+
+    /* ---- MODAL ---- */
+    #modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: var(--modal-overlay);
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
+      z-index: 200;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.25s ease;
+    }
+
+    #modal-overlay.visible {
+      opacity: 1;
+      pointer-events: all;
+    }
+
+    #modal {
+      background: var(--bg);
+      border: 1px solid var(--sidebar-border);
+      border-radius: 18px;
+      padding: 28px 32px;
+      width: 360px;
+      max-width: 90vw;
+      box-shadow: 8px 8px 20px var(--shadow-dark), -8px -8px 20px var(--shadow-light);
+      direction: rtl;
+      transform: scale(0.9) translateY(20px);
+      transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    #modal-overlay.visible #modal {
+      transform: scale(1) translateY(0);
+    }
+
+    #modal-title {
+      font-family: var(--arabic);
+      font-size: 17px;
+      font-weight: 700;
+      color: var(--accent-deep);
+      margin-bottom: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    #btn-close-modal {
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: var(--accent-dim);
+      font-size: 18px;
+      line-height: 1;
+      padding: 4px;
+      transition: color var(--transition);
+    }
+
+    #btn-close-modal:hover { color: var(--accent-deep); }
+
+    .modal-field { margin-bottom: 16px; }
+
+    .modal-label {
+      display: block;
+      font-family: var(--arabic);
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--accent-mid);
+      margin-bottom: 6px;
+    }
+
+    .modal-input, .modal-select {
+      width: 100%;
+      padding: 10px 14px;
+      border: 1.5px solid var(--sidebar-border);
+      border-radius: var(--radius);
+      font-family: var(--arabic);
+      font-size: 14px;
+      color: var(--accent-deep);
+      outline: none;
+      background: var(--node-bg);
+      direction: rtl;
+      transition: border-color var(--transition), box-shadow var(--transition);
+    }
+
+    .modal-input:focus, .modal-select:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(109, 40, 217, 0.15);
+      background: #fff;
+    }
+
+    .modal-radio-group {
+      display: flex;
+      gap: 16px;
+    }
+
+    .modal-radio-label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-family: var(--arabic);
+      font-size: 14px;
+      color: var(--accent-deep);
+      cursor: pointer;
+    }
+
+    .modal-radio-label input[type="radio"] {
+      accent-color: var(--accent);
+      width: 16px;
+      height: 16px;
+    }
+
+    #btn-save-relative {
+      width: 100%;
+      padding: 12px;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: var(--radius);
+      font-family: var(--arabic);
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background var(--transition), transform var(--transition);
+      margin-top: 8px;
+    }
+
+    #btn-save-relative:hover { background: var(--accent-mid); transform: translateY(-1px); }
+    #btn-save-relative:active { transform: translateY(0); }
+
+    /* ---- INLINE NAME EDITOR ---- */
+    #inline-name-editor {
+      position: absolute;
+      background: #fff;
+      color: var(--accent-deep);
+      border: 2px solid var(--accent);
+      border-radius: 10px;
+      font-family: var(--sans);
+      font-size: 13px;
+      font-weight: 600;
+      text-align: center;
+      outline: none;
+      padding: 0 8px;
+      box-sizing: border-box;
+      z-index: 50;
+      box-shadow: 0 0 0 3px rgba(109, 40, 217, 0.2);
+    }
+
+    /* ---- CANVAS HINT ---- */
+    .canvas-hint {
+      position: absolute;
+      bottom: 20px;
+      right: 20px;
+      background: rgba(238, 237, 232, 0.9);
+      color: var(--accent-dim);
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-family: var(--mono);
+      font-size: 10px;
+      pointer-events: none;
+      direction: ltr;
+      border: 1px solid var(--sidebar-border);
+      z-index: 5;
+    }
+
+    /* ---- STATUS BAR ---- */
+    #status-bar {
+      height: 28px;
+      background: var(--sidebar-bg);
+      border-top: 1px solid var(--sidebar-border);
+      display: flex;
+      align-items: center;
+      padding: 0 16px;
+      gap: 20px;
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--accent-mid);
+      flex-shrink: 0;
+    }
+
+    #status-bar .s-bright { color: var(--accent-deep); }
+
+    /* ---- RESPONSIVE ---- */
+    @media (max-width: 640px) {
+      #sidebar { width: 56px; min-width: 56px; }
+      #sidebar-header, #sidebar-search-section, #search-results,
+      #boot-seq, #results-label { display: none; }
+    }
+
+    /* ---- BG COLOR PICKER ---- */
+    #bg-picker-wrap {
+      position: absolute;
+      top: 50%;
+      right: 12px;
+      transform: translateY(-50%);
+      display: flex;
+      flex-direction: row;
+      gap: 6px;
+      z-index: 10;
+    }
+
+    #bg-picker, #bg-picker-dark, #line-picker {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 5px;
+      background: rgba(238,237,232,0.85);
+      border: 1px solid var(--sidebar-border);
+      border-radius: 10px;
+      padding: 8px 5px;
+      backdrop-filter: blur(4px);
+    }
+
+    .bg-picker-label {
+      font-family: var(--mono);
+      font-size: 9px;
+      color: var(--accent-dim);
+      letter-spacing: 1px;
+      margin-bottom: 2px;
+    }
+
+    .bg-swatch {
+      width: 26px;
+      height: 26px;
+      border-radius: 6px;
+      border: 1.5px solid rgba(0,0,0,0.1);
+      cursor: pointer;
+      position: relative;
+      transition: transform 0.15s, border-color 0.15s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .bg-swatch:hover {
+      transform: scale(1.15);
+      border-color: var(--accent);
+    }
+
+    .bg-swatch.active {
+      border-color: var(--accent);
+      border-width: 2px;
+      transform: scale(1.12);
+    }
+
+    .bg-swatch-num {
+      font-family: var(--mono);
+      font-size: 8px;
+      color: rgba(0,0,0,0.35);
+      pointer-events: none;
+    }
+
+    /* ---- LINE WIDTH SLIDER ---- */
+    #line-width-slider-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 5px;
+      background: rgba(238,237,232,0.85);
+      border: 1px solid var(--sidebar-border);
+      border-radius: 10px;
+      padding: 8px 5px;
+      backdrop-filter: blur(4px);
+    }
+
+    #line-width-slider {
+      -webkit-appearance: slider-vertical;
+      writing-mode: vertical-lr;
+      direction: rtl;
+      width: 26px;
+      height: 220px;
+      cursor: pointer;
+      accent-color: var(--accent);
+    }
+
+    #line-width-val {
+      font-family: var(--mono);
+      font-size: 9px;
+      color: var(--accent-dim);
+      letter-spacing: 0.5px;
+    }
+
+    /* ---- BOTTOM COLOR PICKERS ---- */
+    #bottom-picker-wrap {
+      position: absolute;
+      bottom: 14px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      z-index: 10;
+    }
+
+    .bottom-picker-row {
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      gap: 4px;
+      background: rgba(238,237,232,0.88);
+      border: 1px solid rgba(0,0,0,0.07);
+      border-radius: 10px;
+      padding: 5px 10px;
+      backdrop-filter: blur(4px);
+    }
+
+    .bottom-picker-label {
+      font-family: var(--mono);
+      font-size: 9px;
+      color: rgba(0,0,0,0.4);
+      letter-spacing: 0.5px;
+      margin-right: 4px;
+      min-width: 32px;
+    }
+
+    .bottom-swatch {
+      width: 18px;
+      height: 18px;
+      border-radius: 4px;
+      cursor: pointer;
+      border: 1.5px solid rgba(0,0,0,0.08);
+      transition: transform 0.12s, border-color 0.12s;
+      flex-shrink: 0;
+    }
+
+    .bottom-swatch:hover { transform: scale(1.25); border-color: rgba(0,0,0,0.25); }
+    .bottom-swatch.active { border: 2px solid #7c3aed; transform: scale(1.2); }
+
+    /* ---- PRESET ROW ---- */
+    .preset-row {
+      gap: 6px !important;
+    }
+
+    #preset-select {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--accent-deep);
+      background: rgba(255,255,255,0.7);
+      border: 1px solid rgba(0,0,0,0.1);
+      border-radius: 5px;
+      padding: 3px 6px;
+      outline: none;
+      cursor: pointer;
+      min-width: 120px;
+    }
+
+    #preset-select:focus {
+      border-color: var(--accent);
+    }
+
+    .preset-btn {
+      font-family: var(--mono);
+      font-size: 9px;
+      letter-spacing: 0.5px;
+      color: var(--accent-mid);
+      background: rgba(255,255,255,0.6);
+      border: 1px solid rgba(0,0,0,0.1);
+      border-radius: 5px;
+      padding: 3px 8px;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+      white-space: nowrap;
+    }
+
+    .preset-btn:hover {
+      background: rgba(255,255,255,0.9);
+      color: var(--accent-deep);
+    }
+
+    .preset-btn:active {
+      transform: translateY(1px);
+    }
+
+
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div id="main-area">
+
+      <!-- Sidebar -->
+      <div id="sidebar">
+        <div id="sidebar-header">
+          <div id="sidebar-title">FAMILY_TREE.EXE<span class="blink-cursor"></span></div>
+          <div id="sidebar-subtitle">آل الجيوسي · Archive 1999</div>
+        </div>
+
+        <div id="boot-seq">
+          <div>&gt; INITIALIZING SYSTEM...</div>
+          <div>&gt; LOADING FAMILY DATABASE...</div>
+          <div>&gt; 1747 RECORDS FOUND</div>
+          <div>&gt; آل الجيوسي · JAYYOUSI FAMILY</div>
+          <div class="line-ready">&gt; READY_</div>
+        </div>
+
+        <div id="sidebar-actions">
+          <button class="action-btn" id="btn-expand-all">▶▶ EXPAND ALL</button>
+          <button class="action-btn" id="btn-collapse-all">◀◀ COLLAPSE ALL</button>
+        </div>
+
+        <div id="sidebar-search-section">
+          <div id="search-label">&gt; SEARCH_NODE:</div>
+          <input type="text" id="search-input" placeholder="ENTER NAME..." dir="auto" autocomplete="off" />
+        </div>
+
+        <div id="search-results">
+          <div id="results-label">&gt; INDEX</div>
+        </div>
+      </div>
+
+      <!-- Main Canvas -->
+      <div id="canvas-container">
+        <svg id="tree-svg"></svg>
+        <div class="canvas-hint">Scroll to zoom · Drag to pan · Click to expand</div>
+
+        <!-- Background color pickers -->
+        <div id="bg-picker-wrap">
+          <div id="line-picker">
+            <div class="bg-picker-label">LN</div>
+          </div>
+          <div id="bg-picker-dark">
+            <div class="bg-picker-label">DK</div>
+          </div>
+          <div id="bg-picker">
+            <div class="bg-picker-label">LT</div>
+          </div>
+          <div id="line-width-slider-wrap">
+            <div class="bg-picker-label">W</div>
+            <input type="range" id="line-width-slider" min="0.5" max="6" step="0.25" value="1.5" />
+            <div id="line-width-val">1.5</div>
+          </div>
+        </div>
+
+        <!-- Bottom color pickers: node fill + font color -->
+        <div id="bottom-picker-wrap">
+          <div class="bottom-picker-row">
+            <span class="bottom-picker-label">NODE</span>
+            <div id="node-color-picker" style="display:flex;flex-direction:row;gap:4px;flex-wrap:nowrap;"></div>
+          </div>
+          <div class="bottom-picker-row">
+            <span class="bottom-picker-label">FONT</span>
+            <div id="font-color-picker" style="display:flex;flex-direction:row;gap:4px;flex-wrap:nowrap;"></div>
+          </div>
+          <div class="bottom-picker-row preset-row">
+            <span class="bottom-picker-label">PRESET</span>
+            <select id="preset-select"><option value="">-- none --</option></select>
+            <button id="preset-save" class="preset-btn">Save</button>
+            <button id="preset-del" class="preset-btn">Del</button>
+          </div>
+        </div>
+
+        <!-- Minimap -->
+        <div id="minimap-container">
+          <svg id="minimap-svg"></svg>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Status bar -->
+    <div id="status-bar">
+      <span class="s-bright">STATUS: READY</span>
+      <span>|</span>
+      <span id="status-nodes">NODES: —</span>
+      <span>|</span>
+      <span>[CLICK] EXPAND/COLLAPSE</span>
+      <span>[CLICK NAME] EDIT</span>
+    </div>
+  </div>
+
+  <!-- Node Panel -->
+  <div id="node-panel">
+    <span id="panel-name"></span>
+    <div id="panel-divider"></div>
+    <button class="panel-btn" id="btn-add-relative">إضافة قريب</button>
+    <button class="panel-btn" id="btn-close-panel">✕</button>
+  </div>
+
+  <!-- Add Relative Modal -->
+  <div id="modal-overlay">
+    <div id="modal">
+      <div id="modal-title">
+        <span>إضافة قريب</span>
+        <button id="btn-close-modal">✕</button>
+      </div>
+
+      <div class="modal-field">
+        <label class="modal-label" for="modal-relation">العلاقة</label>
+        <select id="modal-relation" class="modal-select">
+          <option value="child">ابن / ابنة</option>
+          <option value="partner">زوج / زوجة</option>
+          <option value="parent">أب / أم</option>
+        </select>
+      </div>
+
+      <div class="modal-field">
+        <label class="modal-label" for="modal-name">الاسم</label>
+        <input type="text" id="modal-name" class="modal-input" dir="auto" placeholder="أدخل الاسم / Enter name..." />
+      </div>
+
+      <div class="modal-field">
+        <label class="modal-label">الجنس</label>
+        <div class="modal-radio-group">
+          <label class="modal-radio-label">
+            <input type="radio" name="modal-gender" value="male" checked />
+            <span>ذكر</span>
+          </label>
+          <label class="modal-radio-label">
+            <input type="radio" name="modal-gender" value="female" />
+            <span>أنثى</span>
+          </label>
+        </div>
+      </div>
+
+      <button id="btn-save-relative">حفظ</button>
+    </div>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+  <script src="family_data.js"></script>
+  <script src="app.js"></script>
+  <script>
+    // Background color pickers
+    const BG_COLORS_LIGHT = [
+      { n:1,  hex:'#fafafa' },
+      { n:2,  hex:'#f5f5f5' },
+      { n:3,  hex:'#f0f0f0' },
+      { n:4,  hex:'#ebebeb' },
+      { n:5,  hex:'#e5e7eb' },
+      { n:6,  hex:'#dde1e7' },
+      { n:7,  hex:'#d4d4d4' },
+      { n:8,  hex:'#f4f3ef' }, // default
+      { n:9,  hex:'#f2efe9' },
+      { n:10, hex:'#ede8df' },
+      { n:11, hex:'#e8e0d4' },
+      { n:12, hex:'#eef0f2' },
+      { n:13, hex:'#e8eaed' },
+      { n:14, hex:'#eceff1' },
+      { n:15, hex:'#e3e8f0' },
+      { n:16, hex:'#eef2ff' },
+      { n:17, hex:'#f0f4f0' },
+      { n:18, hex:'#f0f4f8' },
+      { n:19, hex:'#f5f0ff' },
+      { n:20, hex:'#fff8f0' },
+    ];
+
+    const BG_COLORS_DARK = [
+      { n:1,  hex:'#1a1a1a' }, // near black
+      { n:2,  hex:'#212121' }, // dark charcoal
+      { n:3,  hex:'#2c2c2c' }, // charcoal
+      { n:4,  hex:'#333333' }, // soft black
+      { n:5,  hex:'#3a3a3a' }, // dark gray-black
+      { n:6,  hex:'#1e2a3a' }, // dark navy
+      { n:7,  hex:'#0f1b2d' }, // deep navy
+      { n:8,  hex:'#0a192f' }, // rich navy (VS Code dark)
+      { n:9,  hex:'#0d1b2e' }, // midnight navy
+      { n:10, hex:'#162032' }, // blue-black
+      { n:11, hex:'#1a2744' }, // dark royal blue
+      { n:12, hex:'#1e3a5f' }, // dark blue
+      { n:13, hex:'#1b3a6b' }, // royal blue dark
+      { n:14, hex:'#0d2b55' }, // deep royal blue
+      { n:15, hex:'#0a2342' }, // navy blue
+      { n:16, hex:'#172554' }, // Tailwind blue-950
+      { n:17, hex:'#1e1b4b' }, // deep indigo
+      { n:18, hex:'#2e1065' }, // deep violet
+      { n:19, hex:'#1c1235' }, // very dark purple
+      { n:20, hex:'#0f0a1e' }, // near-black purple
+    ];
+
+    const DEFAULT_HEX = '#f4f3ef';
+    const DEFAULT_LINE_HEX = '#9575c4';
+    const allSwatches = [];
+
+    const LINE_COLORS = [
+      { n:1,  hex:'#ff6b00' }, // vivid orange
+      { n:2,  hex:'#ff8c00' }, // dark orange
+      { n:3,  hex:'#ffa500' }, // classic orange
+      { n:4,  hex:'#ffb347' }, // soft orange
+      { n:5,  hex:'#ff4500' }, // orange-red
+      { n:6,  hex:'#ff7f00' }, // pure orange
+      { n:7,  hex:'#ffd700' }, // gold
+      { n:8,  hex:'#ffcc00' }, // vivid yellow
+      { n:9,  hex:'#ffe033' }, // soft gold
+      { n:10, hex:'#f5e642' }, // bright yellow
+      { n:11, hex:'#ffe066' }, // warm yellow
+      { n:12, hex:'#ffaa00' }, // amber
+      { n:13, hex:'#ff9500' }, // iOS orange
+      { n:14, hex:'#ffba08' }, // golden amber
+      { n:15, hex:'#f4a261' }, // sandy orange
+      { n:16, hex:'#fb923c' }, // Tailwind orange-400
+      { n:17, hex:'#f97316' }, // Tailwind orange-500
+      { n:18, hex:'#ea580c' }, // Tailwind orange-600
+      { n:19, hex:'#ffef00' }, // pure yellow glow
+      { n:20, hex:'#fff176' }, // soft yellow glow
+    ];
+
+    function buildPicker(containerId, colors, defaultHex) {
+      const picker = document.getElementById(containerId);
+      colors.forEach(({ n, hex }) => {
+        const sw = document.createElement('div');
+        sw.className = 'bg-swatch' + (hex === defaultHex ? ' active' : '');
+        sw.style.background = hex;
+        sw.title = `#${n}: ${hex}`;
+        sw.innerHTML = `<span class="bg-swatch-num" style="color:${hex === defaultHex || n > 5 && containerId === 'bg-picker-dark' ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.35)'}">${n}</span>`;
+        sw.addEventListener('click', () => {
+          allSwatches.forEach(s => s.classList.remove('active'));
+          sw.classList.add('active');
+          document.documentElement.style.setProperty('--bg', hex);
+        });
+        picker.appendChild(sw);
+        allSwatches.push(sw);
+      });
+    }
+
+    buildPicker('bg-picker', BG_COLORS_LIGHT, DEFAULT_HEX);
+    buildPicker('bg-picker-dark', BG_COLORS_DARK, DEFAULT_HEX);
+
+    // Line width slider
+    const lwSlider = document.getElementById('line-width-slider');
+    const lwVal    = document.getElementById('line-width-val');
+    lwSlider.addEventListener('input', () => {
+      const w = parseFloat(lwSlider.value);
+      window.activeLineWidth = w;
+      lwVal.textContent = w % 1 === 0 ? w : w.toFixed(2);
+      d3.select('#links-layer').selectAll('.link-line')
+        .style('stroke-width', d => d.onPath ? `${w * 1.6}px` : `${w}px`);
+    });
+
+    const linePicker = document.getElementById('line-picker');
+    LINE_COLORS.forEach(({ n, hex }) => {
+      const sw = document.createElement('div');
+      sw.className = 'bg-swatch' + (hex === DEFAULT_LINE_HEX ? ' active' : '');
+      sw.style.background = hex;
+      sw.title = `#${n}: ${hex}`;
+      sw.innerHTML = `<span class="bg-swatch-num" style="color:rgba(0,0,0,0.4)">${n}</span>`;
+      sw.addEventListener('click', () => {
+        allSwatches.forEach(s => s.classList.remove('active'));
+        linePicker.querySelectorAll('.bg-swatch').forEach(s => s.classList.remove('active'));
+        sw.classList.add('active');
+        window.activeLineColor = hex;
+        // re-stroke current lines immediately
+        d3.select('#links-layer').selectAll('.link-line')
+          .filter(d => !d.onPath)
+          .attr('stroke', hex);
+      });
+      linePicker.appendChild(sw);
+      allSwatches.push(sw);
+    });
+
+    // Node fill colors
+    const NODE_COLORS = [
+      { hex:'#ede8ff' }, // default — light purple
+      { hex:'#dbeafe' }, // light blue
+      { hex:'#dcfce7' }, // light green
+      { hex:'#fef3c7' }, // light amber
+      { hex:'#fee2e2' }, // light red
+      { hex:'#fce7f3' }, // light pink
+      { hex:'#ecfdf5' }, // mint
+      { hex:'#fff7ed' }, // light orange
+      { hex:'#f0f9ff' }, // sky blue
+      { hex:'#f5f3ff' }, // light violet
+      { hex:'#fdf4ff' }, // light fuchsia
+      { hex:'#fff1f2' }, // light rose
+      { hex:'#fefce8' }, // light yellow
+      { hex:'#f8fafc' }, // blue-gray white
+      { hex:'#fffbeb' }, // warm cream
+      { hex:'#e0f2fe' }, // light cyan
+      { hex:'#ede9fe' }, // lavender
+      { hex:'#f1f5f9' }, // slate white
+      { hex:'#fafaf9' }, // stone white
+      { hex:'#f0f4f0' }, // soft sage
+    ];
+
+    // Font colors
+    const FONT_COLORS = [
+      { hex:'#5b21b6' }, // default — deep purple
+      { hex:'#1a1a1a' }, // near black
+      { hex:'#1e3a5f' }, // dark navy
+      { hex:'#1f2937' }, // dark gray
+      { hex:'#0f172a' }, // slate black
+      { hex:'#7c3aed' }, // purple
+      { hex:'#1d4ed8' }, // blue
+      { hex:'#0f766e' }, // dark teal
+      { hex:'#065f46' }, // dark green
+      { hex:'#92400e' }, // dark amber
+      { hex:'#991b1b' }, // dark red
+      { hex:'#831843' }, // dark pink
+      { hex:'#44403c' }, // warm brown
+      { hex:'#0c4a6e' }, // dark sky
+      { hex:'#4a044e' }, // dark fuchsia
+      { hex:'#134e4a' }, // dark cyan
+      { hex:'#172554' }, // dark indigo
+      { hex:'#422006' }, // dark brown-orange
+      { hex:'#3f3f46' }, // zinc dark
+      { hex:'#ffffff' }, // white (for dark node bg)
+    ];
+
+    const DEFAULT_NODE_HEX = '#ede8ff';
+    const DEFAULT_FONT_HEX = '#5b21b6';
+
+    function buildBottomPicker(containerId, colors, defaultHex, onPick) {
+      const container = document.getElementById(containerId);
+      const swatches = [];
+      colors.forEach(({ hex }) => {
+        const sw = document.createElement('div');
+        sw.className = 'bottom-swatch' + (hex === defaultHex ? ' active' : '');
+        sw.style.background = hex;
+        sw.title = hex;
+        sw.addEventListener('click', () => {
+          swatches.forEach(s => s.classList.remove('active'));
+          sw.classList.add('active');
+          onPick(hex);
+        });
+        container.appendChild(sw);
+        swatches.push(sw);
+      });
+    }
+
+    buildBottomPicker('node-color-picker', NODE_COLORS, DEFAULT_NODE_HEX, (hex) => {
+      window.activeNodeColor = hex;
+      d3.select('#nodes-layer').selectAll('.node-rect').attr('fill', hex);
+    });
+
+    buildBottomPicker('font-color-picker', FONT_COLORS, DEFAULT_FONT_HEX, (hex) => {
+      window.activeFontColor = hex;
+      d3.select('#nodes-layer').selectAll('.node-text').style('fill', hex);
+    });
+
+    // ---- PRESETS ----
+    const PRESETS_KEY = 'familyTreePresets';
+    const presetSelect = document.getElementById('preset-select');
+
+    function getPresets() {
+      try { return JSON.parse(localStorage.getItem(PRESETS_KEY)) || {}; }
+      catch { return {}; }
+    }
+
+    function savePresetsToStorage(presets) {
+      localStorage.setItem(PRESETS_KEY, JSON.stringify(presets));
+    }
+
+    function loadPresets() {
+      const presets = getPresets();
+      // Remove all options except the first default one
+      while (presetSelect.options.length > 1) presetSelect.remove(1);
+      Object.keys(presets).forEach(name => {
+        const opt = document.createElement('option');
+        opt.value = name;
+        opt.textContent = name;
+        presetSelect.appendChild(opt);
+      });
+    }
+
+    function captureCurrentState() {
+      return {
+        bg: getComputedStyle(document.documentElement).getPropertyValue('--bg').trim(),
+        nodeColor: window.activeNodeColor || DEFAULT_NODE_HEX,
+        fontColor: window.activeFontColor || DEFAULT_FONT_HEX,
+        lineColor: window.activeLineColor || DEFAULT_LINE_HEX,
+        lineWidth: window.activeLineWidth || parseFloat(lwSlider.value),
+      };
+    }
+
+    function applyPreset(preset) {
+      // 1. Background
+      document.documentElement.style.setProperty('--bg', preset.bg);
+      allSwatches.forEach(s => s.classList.remove('active'));
+      // Highlight matching bg swatch if any
+      allSwatches.forEach(s => {
+        if (s.style.background && s.closest('#bg-picker, #bg-picker-dark')) {
+          const rgb = s.style.background;
+          // Create a temp element to convert hex to compare
+          const tmp = document.createElement('div');
+          tmp.style.background = preset.bg;
+          document.body.appendChild(tmp);
+          const target = getComputedStyle(tmp).backgroundColor;
+          document.body.removeChild(tmp);
+          if (getComputedStyle(s).backgroundColor === target) {
+            s.classList.add('active');
+          }
+        }
+      });
+
+      // 2. Node color
+      window.activeNodeColor = preset.nodeColor;
+      d3.select('#nodes-layer').selectAll('.node-rect').attr('fill', preset.nodeColor);
+      document.querySelectorAll('#node-color-picker .bottom-swatch').forEach(s => {
+        s.classList.toggle('active', s.style.background === preset.nodeColor ||
+          getComputedStyle(s).backgroundColor === hexToRgb(preset.nodeColor));
+      });
+
+      // 3. Font color
+      window.activeFontColor = preset.fontColor;
+      d3.select('#nodes-layer').selectAll('.node-text').style('fill', preset.fontColor);
+      document.querySelectorAll('#font-color-picker .bottom-swatch').forEach(s => {
+        s.classList.toggle('active', s.style.background === preset.fontColor ||
+          getComputedStyle(s).backgroundColor === hexToRgb(preset.fontColor));
+      });
+
+      // 4. Line color
+      window.activeLineColor = preset.lineColor;
+      d3.select('#links-layer').selectAll('.link-line')
+        .filter(d => !d.onPath)
+        .attr('stroke', preset.lineColor);
+      linePicker.querySelectorAll('.bg-swatch').forEach(s => {
+        s.classList.remove('active');
+        const tmp = document.createElement('div');
+        tmp.style.background = preset.lineColor;
+        document.body.appendChild(tmp);
+        const target = getComputedStyle(tmp).backgroundColor;
+        document.body.removeChild(tmp);
+        if (getComputedStyle(s).backgroundColor === target) {
+          s.classList.add('active');
+        }
+      });
+
+      // 5. Line width
+      window.activeLineWidth = preset.lineWidth;
+      lwSlider.value = preset.lineWidth;
+      lwVal.textContent = preset.lineWidth % 1 === 0 ? preset.lineWidth : preset.lineWidth.toFixed(2);
+      d3.select('#links-layer').selectAll('.link-line')
+        .style('stroke-width', d => d.onPath ? `${preset.lineWidth * 1.6}px` : `${preset.lineWidth}px`);
+    }
+
+    // Helper to convert hex to rgb() string for comparison
+    function hexToRgb(hex) {
+      const tmp = document.createElement('div');
+      tmp.style.background = hex;
+      document.body.appendChild(tmp);
+      const rgb = getComputedStyle(tmp).backgroundColor;
+      document.body.removeChild(tmp);
+      return rgb;
+    }
+
+    // Wire up events
+    presetSelect.addEventListener('change', () => {
+      const name = presetSelect.value;
+      if (!name) return;
+      const presets = getPresets();
+      if (presets[name]) applyPreset(presets[name]);
+    });
+
+    document.getElementById('preset-save').addEventListener('click', () => {
+      const name = prompt('Preset name:');
+      if (!name || !name.trim()) return;
+      const presets = getPresets();
+      presets[name.trim()] = captureCurrentState();
+      savePresetsToStorage(presets);
+      loadPresets();
+      presetSelect.value = name.trim();
+    });
+
+    document.getElementById('preset-del').addEventListener('click', () => {
+      const name = presetSelect.value;
+      if (!name) return;
+      if (!confirm(`Delete preset "${name}"?`)) return;
+      const presets = getPresets();
+      delete presets[name];
+      savePresetsToStorage(presets);
+      loadPresets();
+      presetSelect.value = '';
+    });
+
+    // Populate presets on load
+    loadPresets();
+
+    // ---- MINIMAP ----
+    (function initMinimap() {
+      const container = document.getElementById('minimap-container');
+      const mmSvg = d3.select('#minimap-svg');
+      const MM_W = 180;
+      const MM_H = 120;
+      const MM_PAD = 10;
+
+      mmSvg.attr('viewBox', `0 0 ${MM_W} ${MM_H}`);
+      const linksG = mmSvg.append('g').attr('id', 'minimap-links');
+      const nodesG = mmSvg.append('g').attr('id', 'minimap-nodes');
+      const vpRect = mmSvg.append('rect').attr('id', 'minimap-viewport');
+
+      function updateMinimap() {
+        const layout = window.state && window.state.layout;
+        if (!layout) return;
+
+        const ids = Object.keys(layout);
+        if (ids.length === 0) return;
+
+        // Compute bounding box of all nodes
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+        ids.forEach(id => {
+          const p = layout[id];
+          if (p.x < minX) minX = p.x;
+          if (p.x > maxX) maxX = p.x;
+          if (p.y < minY) minY = p.y;
+          if (p.y > maxY) maxY = p.y;
+        });
+
+        // Add padding for node dimensions
+        const nw = 178, nh = 68;
+        minX -= nw / 2;
+        maxX += nw / 2;
+        minY -= nh / 2;
+        maxY += nh / 2;
+
+        const treeW = maxX - minX || 1;
+        const treeH = maxY - minY || 1;
+        const scale = Math.min((MM_W - MM_PAD * 2) / treeW, (MM_H - MM_PAD * 2) / treeH);
+        const offX = (MM_W - treeW * scale) / 2;
+        const offY = (MM_H - treeH * scale) / 2;
+
+        function tx(x) { return (x - minX) * scale + offX; }
+        function ty(y) { return (y - minY) * scale + offY; }
+
+        // Draw nodes
+        const nodeData = ids.map(id => ({ id, x: layout[id].x, y: layout[id].y }));
+        const rects = nodesG.selectAll('.minimap-node').data(nodeData, d => d.id);
+        rects.enter()
+          .append('rect')
+          .attr('class', 'minimap-node')
+          .attr('width', 4).attr('height', 3)
+          .attr('rx', 1)
+          .merge(rects)
+          .attr('x', d => tx(d.x) - 2)
+          .attr('y', d => ty(d.y) - 1.5);
+        rects.exit().remove();
+
+        // Draw links - simplified: connect parents to children via layout
+        const linkData = [];
+        if (window.state && window.state.partnerships) {
+          window.state.partnerships.forEach(pp => {
+            pp.children.forEach(childId => {
+              pp.partners.forEach(parentId => {
+                if (layout[parentId] && layout[childId] &&
+                    window.state.visibleNodes.has(parentId) &&
+                    window.state.visibleNodes.has(childId)) {
+                  linkData.push({
+                    key: parentId + '-' + childId,
+                    x1: layout[parentId].x, y1: layout[parentId].y,
+                    x2: layout[childId].x, y2: layout[childId].y
+                  });
+                }
+              });
+            });
+          });
+        }
+
+        const lines = linksG.selectAll('.minimap-link').data(linkData, d => d.key);
+        lines.enter()
+          .append('line')
+          .attr('class', 'minimap-link')
+          .merge(lines)
+          .attr('x1', d => tx(d.x1)).attr('y1', d => ty(d.y1))
+          .attr('x2', d => tx(d.x2)).attr('y2', d => ty(d.y2));
+        lines.exit().remove();
+
+        // Viewport rectangle
+        const svgEl = document.getElementById('tree-svg');
+        if (!svgEl) return;
+        const svgW = svgEl.clientWidth;
+        const svgH = svgEl.clientHeight;
+        const t = d3.zoomTransform(svgEl);
+
+        // Visible area in tree coordinates
+        const vx = -t.x / t.k;
+        const vy = -t.y / t.k;
+        const vw = svgW / t.k;
+        const vh = svgH / t.k;
+
+        vpRect
+          .attr('x', tx(vx))
+          .attr('y', ty(vy))
+          .attr('width', Math.max(0, vw * scale))
+          .attr('height', Math.max(0, vh * scale));
+
+        // Store transform helpers for click-to-navigate
+        container._mmTx = { minX, minY, scale, offX, offY };
+      }
+
+      // Click-to-navigate
+      container.addEventListener('click', (e) => {
+        const rect = container.getBoundingClientRect();
+        const mx = (e.clientX - rect.left) * (MM_W / rect.width);
+        const my = (e.clientY - rect.top) * (MM_H / rect.height);
+
+        const mm = container._mmTx;
+        if (!mm) return;
+
+        // Convert minimap coords back to tree coords
+        const treeX = (mx - mm.offX) / mm.scale + mm.minX;
+        const treeY = (my - mm.offY) / mm.scale + mm.minY;
+
+        // Pan main view to center on that point
+        const svgEl = document.getElementById('tree-svg');
+        const svgW = svgEl.clientWidth;
+        const svgH = svgEl.clientHeight;
+        const t = d3.zoomTransform(svgEl);
+
+        const newTransform = d3.zoomIdentity
+          .translate(svgW / 2 - t.k * treeX, svgH / 2 - t.k * treeY)
+          .scale(t.k);
+
+        d3.select('#tree-svg')
+          .transition().duration(300).ease(d3.easeCubicOut)
+          .call(zoomBehavior.transform, newTransform);
+      });
+
+      // Hook into render and zoom
+      window.onTreeRender = updateMinimap;
+      window.onZoom = updateMinimap;
+
+      // Initial draw after a short delay to let the tree render first
+      setTimeout(updateMinimap, 200);
+    })();
+  </script>
+</body>
+</html>

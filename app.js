@@ -348,6 +348,7 @@ function initSVG() {
 
   zoomBehavior = d3.zoom()
     .scaleExtent([0.2, 3])
+    .clickDistance(5)
     .on('zoom', (event) => {
       zoomGroup.attr('transform', event.transform);
     });
@@ -789,10 +790,28 @@ function expandSubtree(personId) {
   render(true);
 }
 
+function collapseSubtree(personId) {
+  const queue = [personId];
+  const visited = new Set();
+  while (queue.length > 0) {
+    const id = queue.shift();
+    if (visited.has(id)) continue;
+    visited.add(id);
+    state.expandedNodes.delete(id);
+    for (const pp of state.partnerships) {
+      const [pA, pB] = pp.partners;
+      if (pA === id || pB === id) {
+        for (const childId of pp.children) {
+          if (childId && !visited.has(childId)) queue.push(childId);
+        }
+      }
+    }
+  }
+}
+
 function toggleExpandCollapse(personId) {
   if (state.expandedNodes.has(personId)) {
-    // Collapse: remove from expanded and recompute visibility
-    state.expandedNodes.delete(personId);
+    collapseSubtree(personId);
     recomputeVisibleNodes();
   } else {
     // Expand: add to expanded and make relatives visible

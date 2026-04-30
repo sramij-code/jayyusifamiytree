@@ -827,6 +827,104 @@
       transform: translateY(1px);
     }
 
+    /* ---- ADMIN MODE ---- */
+    #bg-picker-wrap,
+    #bottom-picker-wrap {
+      display: none !important;
+    }
+    body.admin-mode #bg-picker-wrap {
+      display: flex !important;
+    }
+    body.admin-mode #bottom-picker-wrap {
+      display: flex !important;
+    }
+
+    .admin-trigger {
+      cursor: pointer;
+      color: var(--accent-dim);
+      transition: color 0.2s ease;
+      margin-left: auto;
+      user-select: none;
+    }
+    .admin-trigger:hover {
+      color: var(--accent-deep);
+    }
+    body.admin-mode .admin-trigger {
+      color: var(--accent);
+    }
+
+    #admin-modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: var(--modal-overlay);
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
+      z-index: 300;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.25s ease;
+    }
+    #admin-modal-overlay.visible {
+      opacity: 1;
+      pointer-events: all;
+    }
+    #admin-modal {
+      background: var(--bg);
+      border: 1px solid var(--sidebar-border);
+      border-radius: 18px;
+      padding: 24px 28px;
+      width: 280px;
+      max-width: 90vw;
+      box-shadow: 8px 8px 20px var(--shadow-dark), -8px -8px 20px var(--shadow-light);
+      text-align: center;
+      transform: scale(0.9) translateY(20px);
+      transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+    #admin-modal-overlay.visible #admin-modal {
+      transform: scale(1) translateY(0);
+    }
+    #admin-password {
+      width: 100%;
+      padding: 10px 14px;
+      border: 1.5px solid var(--sidebar-border);
+      border-radius: 10px;
+      font-family: var(--mono);
+      font-size: 13px;
+      color: var(--accent-deep);
+      outline: none;
+      background: var(--node-bg);
+      text-align: center;
+      margin: 12px 0;
+      transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    }
+    #admin-password:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(109, 40, 217, 0.15);
+      background: #fff;
+    }
+    #admin-error {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: #991b1b;
+      min-height: 16px;
+    }
+    #admin-submit {
+      padding: 8px 20px;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 10px;
+      font-family: var(--mono);
+      font-size: 12px;
+      cursor: pointer;
+      transition: background 0.2s ease;
+    }
+    #admin-submit:hover {
+      background: var(--accent-mid);
+    }
 
   </style>
 </head>
@@ -921,6 +1019,7 @@
       <span>|</span>
       <span>[CLICK] EXPAND/COLLAPSE</span>
       <span>[CLICK NAME] EDIT</span>
+      <span class="admin-trigger" id="admin-trigger">[ADMIN]</span>
     </div>
   </div>
 
@@ -969,6 +1068,16 @@
       </div>
 
       <button id="btn-save-relative">حفظ</button>
+    </div>
+  </div>
+
+  <!-- Admin Login Modal -->
+  <div id="admin-modal-overlay">
+    <div id="admin-modal">
+      <div style="font-family:var(--mono);font-size:12px;color:var(--accent-deep);letter-spacing:1px;margin-bottom:4px;">&gt; ADMIN_AUTH</div>
+      <input type="password" id="admin-password" placeholder="PASSWORD" autocomplete="off" />
+      <div id="admin-error"></div>
+      <button id="admin-submit">AUTHENTICATE</button>
     </div>
   </div>
 
@@ -1319,6 +1428,71 @@
 
     // Populate presets on load
     loadPresets();
+
+    // ---- ADMIN AUTH ----
+    (function initAdmin() {
+      const ADMIN_HASH = '6586e04df7f9f23b0a765f3a81cb29241a563a1ddb278bf3f6fb45f70a6b80d9';
+      const ADMIN_KEY = 'familyTreeAdmin';
+
+      function applyAdminVisibility() {
+        const isAdmin = localStorage.getItem(ADMIN_KEY) === 'true';
+        document.body.classList.toggle('admin-mode', isAdmin);
+        const trigger = document.getElementById('admin-trigger');
+        if (trigger) trigger.textContent = isAdmin ? '[ADMIN: ON]' : '[ADMIN]';
+      }
+
+      async function hashPassword(password) {
+        const data = new TextEncoder().encode(password);
+        const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+        return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+      }
+
+      function showAdminModal() {
+        document.getElementById('admin-modal-overlay').classList.add('visible');
+        document.getElementById('admin-password').value = '';
+        document.getElementById('admin-error').textContent = '';
+        setTimeout(() => document.getElementById('admin-password').focus(), 300);
+      }
+
+      function hideAdminModal() {
+        document.getElementById('admin-modal-overlay').classList.remove('visible');
+      }
+
+      async function attemptLogin() {
+        const pw = document.getElementById('admin-password').value;
+        if (!pw) return;
+        const hash = await hashPassword(pw);
+        if (hash === ADMIN_HASH) {
+          localStorage.setItem(ADMIN_KEY, 'true');
+          hideAdminModal();
+          applyAdminVisibility();
+        } else {
+          document.getElementById('admin-error').textContent = '> ACCESS DENIED';
+          document.getElementById('admin-password').value = '';
+          document.getElementById('admin-password').focus();
+        }
+      }
+
+      document.getElementById('admin-trigger').addEventListener('click', () => {
+        if (localStorage.getItem(ADMIN_KEY) === 'true') {
+          localStorage.removeItem(ADMIN_KEY);
+          applyAdminVisibility();
+        } else {
+          showAdminModal();
+        }
+      });
+
+      document.getElementById('admin-submit').addEventListener('click', attemptLogin);
+      document.getElementById('admin-password').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); attemptLogin(); }
+        if (e.key === 'Escape') hideAdminModal();
+      });
+      document.getElementById('admin-modal-overlay').addEventListener('click', (e) => {
+        if (e.target === document.getElementById('admin-modal-overlay')) hideAdminModal();
+      });
+
+      applyAdminVisibility();
+    })();
 
     // ---- MINIMAP ----
     (function initMinimap() {

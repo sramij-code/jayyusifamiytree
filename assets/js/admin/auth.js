@@ -12,10 +12,11 @@
 
 // ---- ADMIN AUTH ----
     (function initAdmin() {
-// Passphrase, not a word. The previous value was a single dictionary word and
-// fell to a wordlist sweep in seconds — the hash ships to the browser, so the
-// only thing standing between a stranger and a valid login is guessing cost.
-const ADMIN_HASH = 'ae9ddf8fdf33be21af6b6d9a2d7f25f2ed27bb612dd5f7d074acc8a6e4aa5abf';
+// Owner's choice, set deliberately. The hash below is unsalted and ships to
+// every visitor, so a name+digits+punctuation pattern is within reach of a
+// targeted wordlist run. Accepted: this gate only guards local theming, and
+// nothing reaches the live site until a generated file is committed.
+const ADMIN_HASH = 'c692ae20d12ef61256a3f6812bf5dc3ff982a951b1caeb6cb8df384e9c27f8be';
 const ADMIN_KEY = 'familyTreeAdmin';
 
 function applyAdminVisibility() {

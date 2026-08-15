@@ -25,6 +25,7 @@ function init() {
   initSVG();
   initEventListeners();
   initSearch();
+  initKeyboardShortcuts();
   render(false);
   renderSearchResults('', document.getElementById('search-results'));
   setTimeout(() => centerOnNode(state.loggedInUser, true), 100);

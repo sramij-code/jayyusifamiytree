@@ -214,3 +214,100 @@ function hideNodePanel() {
     .style('stroke-width', `${window.activeLineWidth||1.5}px`)
     .style('opacity', 0.6);
 }
+
+// -----------------------------------------------------------------------------
+// Keyboard navigation on the selected node.
+//
+// ⌘↓ reveals one more generation below, ⌘↑ collapses the whole branch. Down is
+// progressive rather than all-at-once: an arrow key invites repeated presses,
+// so each one should be a small, predictable step. Up is not progressive —
+// "put this branch away" is a single intent.
+// -----------------------------------------------------------------------------
+
+// Reveal exactly one more generation beneath personId. Returns how many people
+// appeared, so the caller can tell the difference between "done" and "nothing
+// left to show".
+function expandOneLevel(personId) {
+  const idx = childIndex();
+  const before = state.visibleNodes.size;
+
+  // The frontier is every visible descendant whose own children are still
+  // hidden. Expanding all of them at once is what makes this one "generation".
+  const frontier = [];
+  const seen = new Set([personId]);
+  const stack = [personId];
+  while (stack.length > 0) {
+    const cur = stack.pop();
+    const kids = idx[cur] || [];
+    if (kids.length === 0) continue;
+    const anyHidden = kids.some(c => !state.visibleNodes.has(c));
+    if (anyHidden) {
+      frontier.push(cur);
+    } else {
+      for (const c of kids) if (!seen.has(c)) { seen.add(c); stack.push(c); }
+    }
+  }
+
+  for (const id of frontier) {
+    state.expandedNodes.add(id);
+    for (const c of (idx[id] || [])) state.visibleNodes.add(c);
+    // Keep a revealed child's mother on screen with him.
+    const couple = coupleMap()[id];
+    if (couple) state.visibleNodes.add(couple.other);
+  }
+
+  return state.visibleNodes.size - before;
+}
+
+// Hide everything below personId and forget it was ever expanded, so a later
+// recomputeVisibleNodes does not resurrect the branch.
+function collapseSubtree(personId) {
+  const idx = childIndex();
+  const seen = new Set([personId]);
+  const stack = [personId];
+  const before = state.visibleNodes.size;
+
+  state.expandedNodes.delete(personId);
+  while (stack.length > 0) {
+    const cur = stack.pop();
+    for (const c of (idx[cur] || [])) {
+      if (seen.has(c)) continue;
+      seen.add(c);
+      state.expandedNodes.delete(c);
+      state.visibleNodes.delete(c);
+      const couple = coupleMap()[c];
+      // A wife is only on screen because of her husband, so she goes too.
+      if (couple && !seen.has(couple.other)) state.visibleNodes.delete(couple.other);
+      stack.push(c);
+    }
+  }
+  // The logged-in user must never vanish.
+  state.visibleNodes.add(state.loggedInUser);
+  return before - state.visibleNodes.size;
+}
+
+function initKeyboardShortcuts() {
+  document.addEventListener('keydown', function (e) {
+    if (!(e.metaKey || e.ctrlKey)) return;
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+
+    // Never steal the key while the user is in a text field: ⌘↑/⌘↓ move the
+    // caret in the search box and the inline name editor.
+    const t = e.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+
+    const id = state.selectedNodeId;
+    if (!id || !state.people[id]) return;
+
+    // Safe to swallow: html/body are overflow:hidden, so the browser's
+    // scroll-to-top/bottom default has nothing to act on.
+    e.preventDefault();
+
+    const changed = e.key === 'ArrowDown' ? expandOneLevel(id) : collapseSubtree(id);
+    if (changed === 0) return;
+
+    render(true);
+    showNodePanel(id);
+    setTimeout(() => centerOnNode(id, true), 60);
+  });
+}

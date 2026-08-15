@@ -28,6 +28,7 @@ function init() {
   initSVG();
   initEventListeners();
   initSearch();
+  initKeyboardShortcuts();
   initModal();
   render(false);
   renderSearchResults('', document.getElementById('search-results'));

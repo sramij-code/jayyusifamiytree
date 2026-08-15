@@ -19,10 +19,13 @@ import json
 import os
 from collections import defaultdict
 
-REPO = os.path.dirname(os.path.abspath(__file__))
+# This script lives in tools/, so the repo root is one level up. Getting this
+# wrong silently resolves to tools/tree_analysis/ and the script cannot find
+# its own input.
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DERIVED = os.path.join(REPO, 'tree_analysis', 'derived_edges.json')
-CURRENT = os.path.join(REPO, 'family_data.js')
-OUT = os.path.join(REPO, 'family_data.rebuilt.js')
+CURRENT = os.path.join(REPO, 'data', 'family.js')
+OUT = os.path.join(REPO, 'data', 'family.rebuilt.js')
 PROV = os.path.join(REPO, 'tree_analysis', 'rebuild_provenance.json')
 
 # A section heading the source draws in a bordered box like a person, and which
@@ -47,8 +50,11 @@ INDEGREE_TIEBREAK = {'p1651': 'p1554'}
 
 
 def load_current():
-    raw = open(CURRENT, encoding='utf-8').read().strip()
-    return json.loads(raw[len('const familyData = '):-1])
+    """Parse data/family.js, which wraps the object as a window global."""
+    raw = open(CURRENT, encoding='utf-8').read()
+    start = raw.index('{')
+    end = raw.rindex('};') + 1
+    return json.loads(raw[start:end])
 
 
 def main():
@@ -148,8 +154,9 @@ def main():
         'root': current['root'],
     }
     with open(OUT, 'w', encoding='utf-8') as f:
-        f.write('const familyData = ' +
-                json.dumps(out, ensure_ascii=False, indent=2) + ';')
+        f.write('window.FT_FAMILY = ' +
+                json.dumps(out, ensure_ascii=False, indent=2) + ';\n' +
+                'var familyData = window.FT_FAMILY;\n')
 
     prov = {
         'source': 'drawn connector lines (3990 Escher msosptLine shapes)',

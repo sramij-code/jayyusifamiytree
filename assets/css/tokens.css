@@ -1,0 +1,29 @@
+/* ============================================================================
+   tokens.css — Design tokens. theme.js overwrites the themeable ones at runtime.
+============================================================================ */
+
+:root {
+      --bg:              #f4f3ef;
+      --node-bg:         #ede8ff;
+      /* published-theme surface, overwritten at runtime by theme.js */
+      --node-fill:       #ede8ff;
+      --font-color:      #5b21b6;
+      --line-color:      #9575c4;
+      --marriage-color:  #b45309;
+      --line-width:      1.5;
+      --shadow-dark:     #c8bce8;
+      --shadow-light:    #ffffff;
+      --accent:          #6d28d9;
+      --accent-mid:      #7c3aed;
+      --accent-dim:      #9575c4;
+      --accent-deep:     #3b0764;
+      --sidebar-bg:      #eeede8;
+      --sidebar-border:  #d4d3ce;
+      --text-name:       #5b21b6;
+      --modal-overlay:   rgba(59, 7, 100, 0.35);
+      --mono:            'Share Tech Mono', 'Courier New', monospace;
+      --sans:            'Inter', sans-serif;
+      --arabic:          'Tajawal', sans-serif;
+      --radius:          8px;
+      --transition:      0.2s ease;
+    }

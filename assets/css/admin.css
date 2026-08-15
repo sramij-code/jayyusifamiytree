@@ -1,0 +1,215 @@
+/* ============================================================================
+   admin.css — Customisation controls. Loaded by admin.html ONLY.
+============================================================================ */
+
+/* ---- BG COLOR PICKER ---- */
+    #bg-picker-wrap {
+      position: absolute;
+      top: 50%;
+      right: 12px;
+      transform: translateY(-50%);
+      display: flex;
+      flex-direction: row;
+      gap: 6px;
+      z-index: 10;
+    }
+
+#bg-picker, #bg-picker-dark, #line-picker {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 5px;
+      background: rgba(238,237,232,0.85);
+      border: 1px solid var(--sidebar-border);
+      border-radius: 10px;
+      padding: 8px 5px;
+      backdrop-filter: blur(4px);
+    }
+
+.bg-picker-label {
+      font-family: var(--mono);
+      font-size: 9px;
+      color: var(--accent-dim);
+      letter-spacing: 1px;
+      margin-bottom: 2px;
+    }
+
+.bg-swatch {
+      width: 26px;
+      height: 26px;
+      border-radius: 6px;
+      border: 1.5px solid rgba(0,0,0,0.1);
+      cursor: pointer;
+      position: relative;
+      transition: transform 0.15s, border-color 0.15s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+.bg-swatch:hover {
+      transform: scale(1.15);
+      border-color: var(--accent);
+    }
+
+.bg-swatch.active {
+      border-color: var(--accent);
+      border-width: 2px;
+      transform: scale(1.12);
+    }
+
+.bg-swatch-num {
+      font-family: var(--mono);
+      font-size: 8px;
+      color: rgba(0,0,0,0.35);
+      pointer-events: none;
+    }
+
+/* ---- LINE WIDTH SLIDER ---- */
+    #line-width-slider-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 5px;
+      background: rgba(238,237,232,0.85);
+      border: 1px solid var(--sidebar-border);
+      border-radius: 10px;
+      padding: 8px 5px;
+      backdrop-filter: blur(4px);
+    }
+
+#line-width-slider {
+      -webkit-appearance: slider-vertical;
+      writing-mode: vertical-lr;
+      direction: rtl;
+      width: 26px;
+      height: 220px;
+      cursor: pointer;
+      accent-color: var(--accent);
+    }
+
+#line-width-val {
+      font-family: var(--mono);
+      font-size: 9px;
+      color: var(--accent-dim);
+      letter-spacing: 0.5px;
+    }
+
+/* ---- BOTTOM COLOR PICKERS ---- */
+    #bottom-picker-wrap {
+      position: absolute;
+      bottom: 14px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      z-index: 10;
+    }
+
+.bottom-picker-row {
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      gap: 4px;
+      background: rgba(238,237,232,0.88);
+      border: 1px solid rgba(0,0,0,0.07);
+      border-radius: 10px;
+      padding: 5px 10px;
+      backdrop-filter: blur(4px);
+    }
+
+.bottom-picker-label {
+      font-family: var(--mono);
+      font-size: 9px;
+      color: rgba(0,0,0,0.4);
+      letter-spacing: 0.5px;
+      margin-right: 4px;
+      min-width: 32px;
+    }
+
+.bottom-swatch {
+      width: 18px;
+      height: 18px;
+      border-radius: 4px;
+      cursor: pointer;
+      border: 1.5px solid rgba(0,0,0,0.08);
+      transition: transform 0.12s, border-color 0.12s;
+      flex-shrink: 0;
+    }
+
+.bottom-swatch:hover { transform: scale(1.25); border-color: rgba(0,0,0,0.25); }
+
+.bottom-swatch.active { border: 2px solid #7c3aed; transform: scale(1.2); }
+
+/* ---- PRESET ROW ---- */
+    .preset-row {
+      gap: 6px !important;
+    }
+
+#preset-select {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--accent-deep);
+      background: rgba(255,255,255,0.7);
+      border: 1px solid rgba(0,0,0,0.1);
+      border-radius: 5px;
+      padding: 3px 6px;
+      outline: none;
+      cursor: pointer;
+      min-width: 120px;
+    }
+
+#preset-select:focus {
+      border-color: var(--accent);
+    }
+
+.preset-btn {
+      font-family: var(--mono);
+      font-size: 9px;
+      letter-spacing: 0.5px;
+      color: var(--accent-mid);
+      background: rgba(255,255,255,0.6);
+      border: 1px solid rgba(0,0,0,0.1);
+      border-radius: 5px;
+      padding: 3px 8px;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+      white-space: nowrap;
+    }
+
+.preset-btn:hover {
+      background: rgba(255,255,255,0.9);
+      color: var(--accent-deep);
+    }
+
+.preset-btn:active {
+      transform: translateY(1px);
+    }
+
+/* ---- publish bar: the visible boundary between draft and published ---- */
+#publish-bar {
+  position: fixed; top: 0; left: 0; right: 0; height: 34px;
+  display: flex; align-items: center; gap: 10px; padding: 0 14px;
+  background: var(--sidebar-bg); border-bottom: 1px solid var(--sidebar-border);
+  font-family: var(--mono); font-size: 10px; color: var(--accent-mid);
+  z-index: 300; direction: ltr;
+}
+#publish-state { letter-spacing: 1px; }
+#publish-state.dirty { color: #b45309; font-weight: 700; }
+.pub-btn {
+  font-family: var(--mono); font-size: 10px; letter-spacing: .5px;
+  padding: 4px 10px; border-radius: 5px; cursor: pointer;
+  border: 1px solid var(--sidebar-border); background: var(--bg); color: var(--accent-deep);
+}
+.pub-btn:hover:not(:disabled) { background: var(--node-bg); }
+.pub-btn:disabled { opacity: .4; cursor: not-allowed; }
+.pub-btn.ghost { color: var(--accent-dim); }
+.pub-note { color: var(--accent-dim); margin-left: auto; }
+body.admin-page #app { padding-top: 34px; }
+
+/* Locked until authenticated: the tree stays readable, controls do not respond. */
+body.locked #publish-bar,
+body.locked #bg-picker-wrap,
+body.locked #bottom-picker-wrap { opacity: .25; pointer-events: none; }

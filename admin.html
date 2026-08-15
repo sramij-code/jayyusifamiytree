@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>ADMIN · شجرة العائلة</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Inter:wght@400;500;600&family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet" />
+
+  <!-- ADMIN VIEW: everything the user view loads, plus the customisation and
+       editing layers. -->
+  <link rel="stylesheet" href="assets/css/tokens.css" />
+  <link rel="stylesheet" href="assets/css/base.css" />
+  <link rel="stylesheet" href="assets/css/admin.css" />
+</head>
+<body class="admin-page">
+<div id="app">
+    <div id="main-area">
+
+      <!-- Sidebar -->
+      <div id="sidebar">
+        <div id="sidebar-header">
+          <div id="sidebar-title">FAMILY_TREE.EXE<span class="blink-cursor"></span></div>
+          <div id="sidebar-subtitle">آل الجيوسي · Archive 1999</div>
+        </div>
+
+        <div id="boot-seq">
+          <div>&gt; INITIALIZING SYSTEM...</div>
+          <div>&gt; LOADING FAMILY DATABASE...</div>
+          <div>&gt; 1747 RECORDS FOUND</div>
+          <div>&gt; آل الجيوسي · JAYYOUSI FAMILY</div>
+          <div class="line-ready">&gt; READY_</div>
+        </div>
+
+        <div id="sidebar-actions">
+          <button class="action-btn" id="btn-expand-all">▶▶ EXPAND ALL</button>
+          <button class="action-btn" id="btn-collapse-all">◀◀ COLLAPSE ALL</button>
+        </div>
+
+        <div id="sidebar-search-section">
+          <div id="search-label">&gt; SEARCH_NODE:</div>
+          <input type="text" id="search-input" placeholder="ARABIC OR ENGLISH..." dir="auto" autocomplete="off" />
+        </div>
+
+        <div id="search-results">
+          <div id="results-label">&gt; INDEX</div>
+        </div>
+      </div>
+
+      <!-- Main Canvas -->
+      <div id="canvas-container">
+        <svg id="tree-svg"></svg>
+        <!-- Background color pickers -->
+        <div id="bg-picker-wrap">
+          <div id="line-picker">
+            <div class="bg-picker-label">LN</div>
+          </div>
+          <div id="bg-picker-dark">
+            <div class="bg-picker-label">DK</div>
+          </div>
+          <div id="bg-picker">
+            <div class="bg-picker-label">LT</div>
+          </div>
+          <div id="line-width-slider-wrap">
+            <div class="bg-picker-label">W</div>
+            <input type="range" id="line-width-slider" min="0.5" max="6" step="0.25" value="1.5" />
+            <div id="line-width-val">1.5</div>
+          </div>
+        </div>
+
+        <!-- Bottom color pickers: node fill + font color -->
+        <div id="bottom-picker-wrap">
+          <div class="bottom-picker-row">
+            <span class="bottom-picker-label">NODE</span>
+            <div id="node-color-picker" style="display:flex;flex-direction:row;gap:4px;flex-wrap:nowrap;"></div>
+          </div>
+          <div class="bottom-picker-row">
+            <span class="bottom-picker-label">FONT</span>
+            <div id="font-color-picker" style="display:flex;flex-direction:row;gap:4px;flex-wrap:nowrap;"></div>
+          </div>
+          <div class="bottom-picker-row preset-row">
+            <span class="bottom-picker-label">PRESET</span>
+            <select id="preset-select"><option value="">-- none --</option></select>
+            <button id="preset-save" class="preset-btn">Save</button>
+            <button id="preset-del" class="preset-btn">Del</button>
+          </div>
+        </div>
+
+        <div class="canvas-hint">Scroll to zoom · Drag to pan · Click to expand · ⌘-click for whole branch</div>
+      </div>
+
+    </div>
+
+    <!-- Status bar -->
+    <div id="status-bar">
+      <span class="s-bright">STATUS: READY</span>
+      <span>|</span>
+      <span id="status-nodes">NODES: —</span>
+      <span>|</span>
+      <span>[CLICK] EXPAND/COLLAPSE</span>
+      <span>[⌘-CLICK] WHOLE BRANCH</span>
+      <span>[CLICK NAME] EDIT</span>
+      <span class="admin-trigger" id="admin-trigger">[ADMIN]</span>
+    </div>
+  </div>
+
+  <!-- Node Panel -->
+  <div id="node-panel">
+    <span id="panel-name"></span>
+    <div id="panel-divider"></div>
+    <button class="panel-btn" id="btn-add-relative">إضافة قريب</button>
+    <button class="panel-btn" id="btn-expand-subtree">توسيع الفرع</button>
+    <button class="panel-btn" id="btn-close-panel">✕</button>
+  </div>
+
+  <!-- Add Relative Modal -->
+  <div id="modal-overlay">
+    <div id="modal">
+      <div id="modal-title">
+        <span>إضافة قريب</span>
+        <button id="btn-close-modal">✕</button>
+      </div>
+
+      <div class="modal-field">
+        <label class="modal-label" for="modal-relation">العلاقة</label>
+        <select id="modal-relation" class="modal-select">
+          <option value="son">ابن</option>
+          <option value="daughter">ابنة · عقدة نهائية</option>
+          <option value="wife">زوجة · عقدة نهائية</option>
+          <option value="father">أب</option>
+        </select>
+      </div>
+
+      <div class="modal-field">
+        <label class="modal-label" for="modal-name">الاسم</label>
+        <input type="text" id="modal-name" class="modal-input" dir="auto" placeholder="أدخل الاسم / Enter name..." />
+      </div>
+
+      <div class="modal-field" id="modal-terminal-hint">
+        البنت والزوجة عقدتان نهائيتان: لا يمكن إضافة أحد إليهما لاحقاً.
+      </div>
+
+      <!-- Gender follows from the relation, so there is nothing to pick. Kept in
+           the DOM but hidden, so any code still querying it keeps working. -->
+      <div class="modal-field" id="modal-gender-field" style="display:none">
+        <label class="modal-label">الجنس</label>
+        <div class="modal-radio-group">
+          <label class="modal-radio-label">
+            <input type="radio" name="modal-gender" value="male" checked />
+            <span>ذكر</span>
+          </label>
+          <label class="modal-radio-label">
+            <input type="radio" name="modal-gender" value="female" />
+            <span>أنثى</span>
+          </label>
+        </div>
+      </div>
+
+      <button id="btn-save-relative">حفظ</button>
+    </div>
+  </div>
+<!-- Add Relative Modal -->
+  <div id="modal-overlay">
+    <div id="modal">
+      <div id="modal-title">
+        <span>إضافة قريب</span>
+        <button id="btn-close-modal">✕</button>
+      </div>
+
+      <div class="modal-field">
+        <label class="modal-label" for="modal-relation">العلاقة</label>
+        <select id="modal-relation" class="modal-select">
+          <option value="son">ابن</option>
+          <option value="daughter">ابنة · عقدة نهائية</option>
+          <option value="wife">زوجة · عقدة نهائية</option>
+          <option value="father">أب</option>
+        </select>
+      </div>
+
+      <div class="modal-field">
+        <label class="modal-label" for="modal-name">الاسم</label>
+        <input type="text" id="modal-name" class="modal-input" dir="auto" placeholder="أدخل الاسم / Enter name..." />
+      </div>
+
+      <div class="modal-field" id="modal-terminal-hint">
+        البنت والزوجة عقدتان نهائيتان: لا يمكن إضافة أحد إليهما لاحقاً.
+      </div>
+
+      <!-- Gender follows from the relation, so there is nothing to pick. Kept in
+           the DOM but hidden, so any code still querying it keeps working. -->
+      <div class="modal-field" id="modal-gender-field" style="display:none">
+        <label class="modal-label">الجنس</label>
+        <div class="modal-radio-group">
+          <label class="modal-radio-label">
+            <input type="radio" name="modal-gender" value="male" checked />
+            <span>ذكر</span>
+          </label>
+          <label class="modal-radio-label">
+            <input type="radio" name="modal-gender" value="female" />
+            <span>أنثى</span>
+          </label>
+        </div>
+      </div>
+
+      <button id="btn-save-relative">حفظ</button>
+    </div>
+  </div>
+<!-- Admin Login Modal -->
+  <div id="admin-modal-overlay">
+    <div id="admin-modal">
+      <div style="font-family:var(--mono);font-size:12px;color:var(--accent-deep);letter-spacing:1px;margin-bottom:4px;">&gt; ADMIN_AUTH</div>
+      <input type="password" id="admin-password" placeholder="PASSWORD" autocomplete="off" />
+      <div id="admin-error"></div>
+      <button id="admin-submit">AUTHENTICATE</button>
+    </div>
+  </div>
+
+  <!-- Publish bar: the visible boundary between "my browser" and "the site" -->
+  <div id="publish-bar">
+    <span id="publish-state">○ IN SYNC WITH SITE</span>
+    <button id="btn-publish" class="pub-btn" disabled>PUBLISH THEME &darr;</button>
+    <button id="btn-publish-family" class="pub-btn">EXPORT FAMILY DATA &darr;</button>
+    <button id="btn-reset-draft" class="pub-btn ghost">DISCARD DRAFT</button>
+    <span class="pub-note">downloads a file &middot; commit it to update the live site</span>
+  </div>
+
+  <script src="assets/vendor/d3.min.js"></script>
+  <script src="data/names.js"></script>
+  <script src="data/family.js"></script>
+  <script src="data/theme.js"></script>
+  <script src="assets/js/theme.js"></script>
+
+  <script src="assets/js/core/state.js"></script>
+  <script src="assets/js/core/layout.js"></script>
+  <script src="assets/js/core/links.js"></script>
+  <script src="assets/js/core/render.js"></script>
+  <script src="assets/js/core/interactions.js"></script>
+  <script src="assets/js/core/search.js"></script>
+
+  <script src="assets/js/admin/auth.js"></script>
+  <script src="assets/js/admin/publish.js"></script>
+  <script src="assets/js/admin/edit.js"></script>
+  <script src="assets/js/admin/pickers.js"></script>
+  <script src="assets/js/admin/presets.js"></script>
+  <script src="assets/js/admin/admin.js"></script>
+</body>
+</html>

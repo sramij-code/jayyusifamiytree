@@ -12,7 +12,7 @@
 
 // ---- ADMIN AUTH ----
     (function initAdmin() {
-const ADMIN_HASH = '6586e04df7f9f23b0a765f3a81cb29241a563a1ddb278bf3f6fb45f70a6b80d9';
+const ADMIN_HASH = '54c5b3dd459d5ef778bb2fa1e23a5fb0e1b62ae66970bcb436e8f81a1a1a8e41';
 const ADMIN_KEY = 'familyTreeAdmin';
 
 function applyAdminVisibility() {

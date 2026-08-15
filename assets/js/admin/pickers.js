@@ -215,67 +215,7 @@
 
     
 
-    // ---- ADMIN AUTH ----
-    (function initAdmin() {
-      const ADMIN_HASH = '6586e04df7f9f23b0a765f3a81cb29241a563a1ddb278bf3f6fb45f70a6b80d9';
-      const ADMIN_KEY = 'familyTreeAdmin';
+    // Auth lives in auth.js. A duplicate copy of the whole gate was lifted in
+    // here with the live inline script; it loaded AFTER auth.js and re-bound the
+    // same listeners against its own hash constant.
 
-      function applyAdminVisibility() {
-        const isAdmin = localStorage.getItem(ADMIN_KEY) === 'true';
-        document.body.classList.toggle('admin-mode', isAdmin);
-        const trigger = document.getElementById('admin-trigger');
-        if (trigger) trigger.textContent = isAdmin ? '[ADMIN: ON]' : '[ADMIN]';
-      }
-
-      async function hashPassword(password) {
-        const data = new TextEncoder().encode(password);
-        const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-        return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
-      }
-
-      function showAdminModal() {
-        document.getElementById('admin-modal-overlay').classList.add('visible');
-        document.getElementById('admin-password').value = '';
-        document.getElementById('admin-error').textContent = '';
-        setTimeout(() => document.getElementById('admin-password').focus(), 300);
-      }
-
-      function hideAdminModal() {
-        document.getElementById('admin-modal-overlay').classList.remove('visible');
-      }
-
-      async function attemptLogin() {
-        const pw = document.getElementById('admin-password').value;
-        if (!pw) return;
-        const hash = await hashPassword(pw);
-        if (hash === ADMIN_HASH) {
-          localStorage.setItem(ADMIN_KEY, 'true');
-          hideAdminModal();
-          applyAdminVisibility();
-        } else {
-          document.getElementById('admin-error').textContent = '> ACCESS DENIED';
-          document.getElementById('admin-password').value = '';
-          document.getElementById('admin-password').focus();
-        }
-      }
-
-      document.getElementById('admin-trigger').addEventListener('click', () => {
-        if (localStorage.getItem(ADMIN_KEY) === 'true') {
-          localStorage.removeItem(ADMIN_KEY);
-          applyAdminVisibility();
-        } else {
-          showAdminModal();
-        }
-      });
-
-      document.getElementById('admin-submit').addEventListener('click', attemptLogin);
-      document.getElementById('admin-password').addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') { e.preventDefault(); attemptLogin(); }
-        if (e.key === 'Escape') hideAdminModal();
-      });
-      document.getElementById('admin-modal-overlay').addEventListener('click', (e) => {
-        if (e.target === document.getElementById('admin-modal-overlay')) hideAdminModal();
-      });
-
-      applyAdminVisibility();
-    })();

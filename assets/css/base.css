@@ -69,8 +69,11 @@ html, body {
 
 /* ---- SIDEBAR ---- */
     #sidebar {
-      width: 260px;
-      min-width: 260px;
+      /* Width is a variable so the drag handle (and a saved preference) can
+         change it without touching layout rules. */
+      width: var(--sidebar-w, 260px);
+      min-width: 0;
+      flex-shrink: 0;
       height: 100%;
       background: var(--sidebar-bg);
       border-right: 1px solid var(--sidebar-border);
@@ -107,9 +110,10 @@ html, body {
       animation: blink 1s step-end infinite;
     }
 
-0%, 100% { opacity: 1; }
-
-50%       { opacity: 0; }
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0; }
+}
 
 #sidebar-subtitle {
       font-family: var(--mono);
@@ -373,11 +377,11 @@ html, body {
         drop-shadow(0 0 14px rgba(139, 92, 246, 0.4)) !important;
     }
 
-0%   { stroke: #7c3aed; stroke-width: 2px; filter: drop-shadow(0 0 8px rgba(139,92,246,0.6)); }
-
-50%  { stroke: #a78bfa; stroke-width: 3px; filter: drop-shadow(0 0 16px rgba(139,92,246,0.8)); }
-
-100% { stroke: #7c3aed; stroke-width: 2px; filter: drop-shadow(0 0 8px rgba(139,92,246,0.6)); }
+@keyframes pulse-highlight {
+  0%   { stroke: #7c3aed; stroke-width: 2px; filter: drop-shadow(0 0 8px rgba(139,92,246,0.6)); }
+  50%  { stroke: #a78bfa; stroke-width: 3px; filter: drop-shadow(0 0 16px rgba(139,92,246,0.8)); }
+  100% { stroke: #7c3aed; stroke-width: 2px; filter: drop-shadow(0 0 8px rgba(139,92,246,0.6)); }
+}
 
 .node-highlighted .node-rect {
       animation: pulse-highlight 1s ease-in-out 3;
@@ -690,7 +694,51 @@ html, body {
 
 #status-bar .s-bright { color: var(--accent-deep); }
 
-#sidebar { width: 56px; min-width: 56px; }
+/* ---- RESPONSIVE ----
+   Restored: the CSS split flattened this out of its @media wrapper, so the
+   narrow-screen collapse was applying at every width and the sidebar was
+   permanently 56px with its contents hidden. */
+@media (max-width: 640px) {
+  #sidebar { width: 56px !important; min-width: 56px !important; }
+  #sidebar-header, #sidebar-search-section, #search-results,
+  #boot-seq, #results-label { display: none; }
+  #sidebar-resizer { display: none; }
+}
 
-#sidebar-header, #sidebar-search-section, #search-results,
-      #boot-seq, #results-label { display: none; }
+
+/* ---- SIDEBAR RESIZER ----
+   A thin drag handle on the sidebar's inner edge. The sidebar is on the left
+   of an LTR flex row (#app forces direction: ltr so canvas maths stays LTR),
+   so the handle sits on its right border. */
+#sidebar-resizer {
+  width: 6px;
+  flex: 0 0 6px;
+  cursor: col-resize;
+  background: transparent;
+  border-right: 1px solid var(--sidebar-border);
+  transition: background 0.15s;
+  z-index: 20;
+  position: relative;
+}
+#sidebar-resizer::after {
+  content: '';
+  position: absolute;
+  top: 50%; left: 1px;
+  width: 2px; height: 28px;
+  transform: translateY(-50%);
+  border-radius: 1px;
+  background: var(--sidebar-border);
+}
+#sidebar-resizer:hover,
+#sidebar-resizer.dragging { background: rgba(109, 40, 217, 0.12); }
+#sidebar-resizer:hover::after,
+#sidebar-resizer.dragging::after { background: var(--accent); }
+
+/* While dragging, stop the pointer selecting text or becoming an I-beam. */
+body.resizing { cursor: col-resize; user-select: none; }
+body.resizing #tree-svg { pointer-events: none; }
+
+/* The sidebar's own children must not force it wider than the drag allows. */
+#sidebar { overflow-x: hidden; }
+#sidebar-actions { flex-wrap: wrap; }
+.action-btn { min-width: 0; overflow: hidden; text-overflow: ellipsis; }

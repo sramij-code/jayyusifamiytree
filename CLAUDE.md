@@ -126,30 +126,31 @@ bidi run — a mixed Arabic/Latin string reorders unpredictably based on its fir
 The tree structure has a contested history. Read this before touching any `family_data.js` variant.
 
 - `tools/rebuild_from_excel.py` is the **current, authoritative** pipeline. It derives descent from
-  the workbook's 3,990 drawn Escher connector-line shapes (via
-  `tree_analysis/derived_edges.json`, which is not in the repo), falls back to the app's existing
-  edge only where the drawing yields nothing, rejects cycle-closing fallbacks, and recomputes
-  `generation` as true depth from the root. It writes `family_data.rebuilt.js` and a per-edge
-  evidence report to `tree_analysis/rebuild_provenance.json`. It **never** overwrites its input.
+  the workbook's 3,990 drawn Escher connector-line shapes (via `tree_analysis/derived_edges.json`,
+  which IS tracked), falls back to the previous edge only where the drawing yields nothing, rejects
+  cycle-closing fallbacks, and recomputes `generation` as true depth from the root. It writes
+  `data/family.rebuilt.js` and a per-edge evidence report to `tree_analysis/rebuild_provenance.json`.
+  It **never** overwrites its input.
 
   ```sh
-  python3 tools/rebuild_from_excel.py
+  python3 tools/rebuild_from_excel.py     # regenerates data/family.rebuilt.js
   ```
 
-- `apply_corrections.py` (repo root, untracked) is **dead and must not be run.** It applied ~15
-  hardcoded parentage fixes derived from cell *proximity*, a premise `rebuild_from_excel.py`
-  refutes — its very first correction reverses an edge the drawing gets right. It also writes
-  `family_data.js` in place and hardcodes absolute paths to a *different* directory
-  (`~/work/projects/familytree`, no `jayyusi` prefix). Keep it only as provenance.
+  Verified 2026-08-15: it reproduces the shipped `data/family.js` byte-identically
+  (1,746 people / 659 partnerships). Compare, then replace `data/family.js` deliberately.
 
-- `family_data.js` (root, `const familyData = ...`) is the **legacy** dataset used by the equally
-  legacy monolithic `app.js`. It is not loaded by `index.html` or `admin.html`. It differs from the
-  live data: 1,747 people / 738 partnerships vs. `data/family.js`'s 1,746 / 659. `app.js` is the
-  pre-split monolith that `assets/js/core/*` was carved out of; several of its section headers were
-  copied into the split files verbatim.
+  Its one external input is the source workbook, which is **outside the repo**:
+  `~/Downloads/jioussy_family_tree_Jayyousi.xls`. Needs `xlrd` (`pip3 install xlrd`).
 
-**Live data is `data/family.js` and nothing else.** Editing `family_data.js` or `app.js` changes
-nothing a visitor sees.
+- **Deleted 2026-08-15, do not resurrect:** `app.js` and `family_data.js` (the pre-split monolith and
+  its legacy 1,747-person dataset, loaded by neither page), `apply_corrections.py` (applied ~15
+  hardcoded fixes from cell *proximity*, a premise the drawn lines refute — its very first correction
+  reverses an edge the drawing gets right), and the screenshot-derived transcription under
+  `tree_analysis/` (`S*.json`, `result_S*.json`, `review_R*.json`). `review_R3_spine.json` in
+  particular asserted the col-106 spine is a linear chain, which is exactly the error that produced
+  the 64-generation tree. Archived to `~/Desktop/familytree-transcription-archive.tgz`.
+
+**Live data is `data/family.js` and nothing else.**
 
 ## Untracked directories
 

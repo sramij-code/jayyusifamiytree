@@ -209,7 +209,117 @@
 .pub-note { color: var(--accent-dim); margin-left: auto; }
 body.admin-page #app { padding-top: 34px; }
 
-/* Locked until authenticated: the tree stays readable, controls do not respond. */
-body.locked #publish-bar,
-body.locked #bg-picker-wrap,
-body.locked #bottom-picker-wrap { opacity: .25; pointer-events: none; }
+/* ---- AUTH GATE ----
+   Lifted from the live site's inline CSS. My CSS split read the OTHER repo's
+   index.html, which never had these rules, so the whole gate was unstyled and
+   the login modal could not appear at all.
+
+   Visibility of the pickers is owned by .admin-mode here (hidden by default,
+   shown once authenticated). The publish bar follows the same rule rather than
+   using a separate .locked state, which previously fought this one and left
+   the controls permanently greyed. */
+/* ---- ADMIN MODE ---- */
+#bg-picker-wrap,
+#bottom-picker-wrap {
+  display: none !important;
+}
+body.admin-mode #bg-picker-wrap {
+  display: flex !important;
+}
+body.admin-mode #bottom-picker-wrap {
+  display: flex !important;
+}
+
+.admin-trigger {
+  cursor: pointer;
+  color: var(--accent-dim);
+  transition: color 0.2s ease;
+  margin-left: auto;
+  user-select: none;
+}
+.admin-trigger:hover {
+  color: var(--accent-deep);
+}
+body.admin-mode .admin-trigger {
+  color: var(--accent);
+}
+
+#admin-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--modal-overlay);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
+}
+#admin-modal-overlay.visible {
+  opacity: 1;
+  pointer-events: all;
+}
+#admin-modal {
+  background: var(--bg);
+  border: 1px solid var(--sidebar-border);
+  border-radius: 18px;
+  padding: 24px 28px;
+  width: 280px;
+  max-width: 90vw;
+  box-shadow: 8px 8px 20px var(--shadow-dark), -8px -8px 20px var(--shadow-light);
+  text-align: center;
+  transform: scale(0.9) translateY(20px);
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+#admin-modal-overlay.visible #admin-modal {
+  transform: scale(1) translateY(0);
+}
+#admin-password {
+  width: 100%;
+  padding: 10px 14px;
+  border: 1.5px solid var(--sidebar-border);
+  border-radius: 10px;
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--accent-deep);
+  outline: none;
+  background: var(--node-bg);
+  text-align: center;
+  margin: 12px 0;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+#admin-password:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(109, 40, 217, 0.15);
+  background: #fff;
+}
+#admin-error {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: #991b1b;
+  min-height: 16px;
+}
+#admin-submit {
+  padding: 8px 20px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  font-family: var(--mono);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+#admin-submit:hover {
+  background: var(--accent-mid);
+}
+
+  </style>
+
+/* Publish bar is admin-only too. */
+#publish-bar { display: none; }
+body.admin-mode #publish-bar { display: flex; }
+body:not(.admin-mode) #app { padding-top: 0; }

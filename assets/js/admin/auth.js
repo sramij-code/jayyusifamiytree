@@ -18,7 +18,6 @@ const ADMIN_KEY = 'familyTreeAdmin';
 function applyAdminVisibility() {
   const isAdmin = localStorage.getItem(ADMIN_KEY) === 'true';
   document.body.classList.toggle('admin-mode', isAdmin);
-  document.body.classList.toggle('locked', !isAdmin);
   const trigger = document.getElementById('admin-trigger');
   if (trigger) trigger.textContent = isAdmin ? '[ADMIN: ON]' : '[ADMIN]';
 }

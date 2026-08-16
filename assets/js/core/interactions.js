@@ -286,6 +286,18 @@ function collapseSubtree(personId) {
   return before - state.visibleNodes.size;
 }
 
+// The panel button and ⌘↓ do the same thing, so they share the follow-up:
+// redraw, keep the panel on the node, then recentre once the layout settles.
+function expandOneLevelFromPanel(personId) {
+  if (!personId || !state.people[personId]) return 0;
+  const changed = expandOneLevel(personId);
+  if (changed === 0) return 0;
+  render(true);
+  showNodePanel(personId);
+  setTimeout(() => centerOnNode(personId, true), 60);
+  return changed;
+}
+
 function initKeyboardShortcuts() {
   document.addEventListener('keydown', function (e) {
     if (!(e.metaKey || e.ctrlKey)) return;

@@ -278,3 +278,48 @@ function centerOnNode(personId, smooth = false) {
     d3.select('#tree-svg').call(zoomBehavior.transform, transform);
   }
 }
+
+// Frame a set of nodes, zooming out if they do not fit at 1:1.
+//
+// centerOnNode pins scale at 1.0, which is right on a desktop but clips on a
+// phone: two siblings sit NODE_W + H_GAP = 258px apart and need 436px of span,
+// where a 375px screen has 375. The first thing a mobile visitor saw was three
+// oversized boxes with both children cut off at the edges. Never zooms IN past
+// 1:1 — a lone root node filling the screen looks broken, not welcoming.
+function fitToNodes(ids, smooth = false, pad = 48) {
+  if (!zoomBehavior) return;
+  const layout = state.layout;
+  const pts = ids.map(id => layout[id]).filter(Boolean);
+  if (pts.length === 0) return;
+
+  const svgEl = document.getElementById('tree-svg');
+  const W = svgEl.clientWidth;
+  const H = svgEl.clientHeight;
+  if (!W || !H) return;
+
+  const xs = pts.map(p => p.x);
+  const ys = pts.map(p => p.y);
+  const minX = Math.min(...xs), maxX = Math.max(...xs);
+  const minY = Math.min(...ys), maxY = Math.max(...ys);
+
+  // Node coordinates are centres, so a full node's worth of box spans the edges.
+  const spanW = (maxX - minX) + NODE_W + pad * 2;
+  const spanH = (maxY - minY) + NODE_H + pad * 2;
+
+  const [minScale] = zoomBehavior.scaleExtent();
+  const scale = Math.max(Math.min(W / spanW, H / spanH, 1), minScale);
+
+  const cx = (minX + maxX) / 2;
+  const cy = (minY + maxY) / 2;
+  const transform = d3.zoomIdentity
+    .translate(W / 2 - scale * cx, H / 2 - scale * cy)
+    .scale(scale);
+
+  if (smooth) {
+    d3.select('#tree-svg')
+      .transition().duration(700).ease(d3.easeCubicInOut)
+      .call(zoomBehavior.transform, transform);
+  } else {
+    d3.select('#tree-svg').call(zoomBehavior.transform, transform);
+  }
+}

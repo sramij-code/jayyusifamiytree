@@ -56,7 +56,8 @@
 
     </div>
 
-    <!-- Status bar -->
+    <!-- Status bar. Everything from the 4th span on is pointer/keyboard advice
+         and is hidden under the mobile breakpoint. -->
     <div id="status-bar">
       <span class="s-bright">STATUS: READY</span>
       <span>|</span>
@@ -73,56 +74,13 @@
   <div id="node-panel">
     <span id="panel-name"></span>
     <div id="panel-divider"></div>
+    <button class="panel-btn" id="btn-expand-level">مستوى واحد</button>
     <button class="panel-btn" id="btn-expand-subtree">توسيع الفرع</button>
-    <button class="panel-btn" id="btn-close-panel">✕</button>
+    <button class="panel-btn" id="btn-close-panel" aria-label="إغلاق">✕</button>
   </div>
 
-  <!-- Add Relative Modal -->
-  <div id="modal-overlay">
-    <div id="modal">
-      <div id="modal-title">
-        <span>إضافة قريب</span>
-        <button id="btn-close-modal">✕</button>
-      </div>
-
-      <div class="modal-field">
-        <label class="modal-label" for="modal-relation">العلاقة</label>
-        <select id="modal-relation" class="modal-select">
-          <option value="son">ابن</option>
-          <option value="daughter">ابنة · عقدة نهائية</option>
-          <option value="wife">زوجة · عقدة نهائية</option>
-          <option value="father">أب</option>
-        </select>
-      </div>
-
-      <div class="modal-field">
-        <label class="modal-label" for="modal-name">الاسم</label>
-        <input type="text" id="modal-name" class="modal-input" dir="auto" placeholder="أدخل الاسم / Enter name..." />
-      </div>
-
-      <div class="modal-field" id="modal-terminal-hint">
-        البنت والزوجة عقدتان نهائيتان: لا يمكن إضافة أحد إليهما لاحقاً.
-      </div>
-
-      <!-- Gender follows from the relation, so there is nothing to pick. Kept in
-           the DOM but hidden, so any code still querying it keeps working. -->
-      <div class="modal-field" id="modal-gender-field" style="display:none">
-        <label class="modal-label">الجنس</label>
-        <div class="modal-radio-group">
-          <label class="modal-radio-label">
-            <input type="radio" name="modal-gender" value="male" checked />
-            <span>ذكر</span>
-          </label>
-          <label class="modal-radio-label">
-            <input type="radio" name="modal-gender" value="female" />
-            <span>أنثى</span>
-          </label>
-        </div>
-      </div>
-
-      <button id="btn-save-relative">حفظ</button>
-    </div>
-  </div>
+  <!-- No add-relative modal here. Editing lives in assets/js/admin/edit.js,
+       which this page never loads, so the markup could never open. -->
 
   <script src="assets/vendor/d3.min.js"></script>
   <script src="data/names.js"></script>

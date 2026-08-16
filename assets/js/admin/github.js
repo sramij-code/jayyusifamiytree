@@ -81,13 +81,25 @@ var FTGitHub = window.FTGitHub = (function () {
   }
 
   async function api(path, options) {
-    const res = await fetch(API + path, Object.assign({}, options, {
-      headers: Object.assign({
-        'Authorization': 'Bearer ' + token(),
-        'Accept': 'application/vnd.github+json',
-        'X-GitHub-Api-Version': '2022-11-28',
-      }, (options && options.headers) || {}),
-    }));
+    let res;
+    try {
+      res = await fetch(API + path, Object.assign({}, options, {
+        headers: Object.assign({
+          'Authorization': 'Bearer ' + token(),
+          'Accept': 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28',
+        }, (options && options.headers) || {}),
+      }));
+    } catch (e) {
+      // fetch rejects — as opposed to returning a non-ok response — only when
+      // the request never completed: offline, DNS, or a CORS preflight refusal.
+      // Safari words that "Load failed" and Chrome "Failed to fetch", neither of
+      // which suggests where to look, so name the candidates. A CORS refusal
+      // here means a request header was added that GitHub does not allow.
+      throw new Error('Could not reach api.github.com (' + (e && e.message) + '). ' +
+        'Check the connection; if it persists, the request was blocked before ' +
+        'being sent — see the browser console for a CORS error.');
+    }
 
     if (!res.ok) {
       let detail = '';
@@ -211,11 +223,15 @@ var FTGitHub = window.FTGitHub = (function () {
         }
 
         say('reading branch…');
-        // no-cache so neither the browser nor a CDN hands back a ref we have
-        // already seen be wrong.
-        const ref = await api(base + '/git/ref/heads/' + BRANCH, {
-          method: 'GET', headers: { 'Cache-Control': 'no-cache' },
-        });
+        // Deliberately NO Cache-Control header. It is not a CORS-safelisted
+        // request header, so asking for it makes the preflight negotiate it —
+        // and GitHub's Access-Control-Allow-Headers does not list it, so the
+        // browser blocks the request before it is sent and fetch rejects with
+        // Safari's opaque "Load failed". It bought nothing either way: the
+        // staleness this retry works around is GitHub's own read-after-write
+        // lag on the server, which no request header can affect. The backoff
+        // above is the actual fix.
+        const ref = await api(base + '/git/ref/heads/' + BRANCH, { method: 'GET' });
         const headSha = ref.object.sha;
         const headCommit = await api(base + '/git/commits/' + headSha, { method: 'GET' });
 

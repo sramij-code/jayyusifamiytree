@@ -1,7 +1,7 @@
 /* ============================================================================
-   changelog.js — draft persistence and the per-edit audit trail.
+   changelog.js — draft persistence and the per-edit audit trail. BOTH pages.
 
-   Two jobs, both admin-only:
+   Two jobs:
 
    1. DRAFT. Structural edits used to live in one tab's memory and nothing
       else. Closing the tab lost them, and there was no dirty indicator to
@@ -9,8 +9,12 @@
       publish.js keeps a localStorage draft); family data never got the same
       treatment. This mirrors it.
 
-   2. CHANGELOG. Every edit appends one line to a log that ships to the repo
-      as data/changes.jsonl.
+      For a proposer the draft does more than protect work: it IS how they see
+      their own suggestion rendered on the tree while it waits for review.
+
+   2. CHANGELOG. Every edit appends one line to a log. In admin.html that log
+      is committed as data/changes.jsonl; in index.html the same entries are
+      the payload of a proposal.
 
    The changelog is DESCRIPTIVE, NOT AUTHORITATIVE. data/family.js remains the
    rendered truth; nothing ever replays this log to reconstruct the tree. That
@@ -127,7 +131,17 @@ var FTChangeLog = window.FTChangeLog = (function () {
       }, entry));
       write(LOG_KEY, log);
       this.saveDraft();
+      this.notify();
+    },
+
+    // Refresh whichever status bar this page has. admin.html owns
+    // markFamilyDirty, index.html owns markProposeState, and neither knows
+    // about the other — so ask for both and take what exists. Without this the
+    // viewer's SEND button stayed disabled after an edit, because nothing told
+    // the propose bar its count had changed.
+    notify: function () {
       if (typeof markFamilyDirty === 'function') markFamilyDirty();
+      if (typeof markProposeState === 'function') markProposeState();
     },
 
     clearLog: function () {

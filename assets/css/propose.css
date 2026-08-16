@@ -1,0 +1,296 @@
+/* ============================================================================
+   propose.css — propose mode in index.html. Not loaded by admin.html, which
+   has its own publish bar.
+
+   The page opens read-only: everything marked .propose-only is hidden until
+   body.propose-mode is set, so a casual visitor sees exactly the tree they saw
+   before and nothing suggesting they are expected to edit anything.
+============================================================================ */
+
+.propose-only { display: none !important; }
+body.propose-mode .propose-only { display: inline-flex !important; }
+body.propose-mode .pb-note { display: inline !important; }
+
+/* ---- PROPOSE BAR ---- */
+#propose-bar {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 14px calc(5px + env(safe-area-inset-top));
+  background: var(--sidebar-bg);
+  border-bottom: 1px solid var(--sidebar-border);
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--accent-mid);
+  z-index: 300;
+  direction: rtl;
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+
+/* The tree sits below the bar. Only shifted in propose mode, so the default
+   view keeps its full height. */
+body.propose-mode #app { padding-top: 40px; }
+
+#propose-toggle {
+  font-family: var(--arabic);
+  font-size: 12px;
+  padding: 6px 14px;
+  min-height: 32px;
+  border-radius: 16px;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+  transition: background var(--transition);
+}
+#propose-toggle:hover { background: var(--accent-mid); }
+body.propose-mode #propose-toggle {
+  background: var(--bg);
+  color: var(--accent-deep);
+  border-color: var(--sidebar-border);
+}
+
+#propose-who {
+  font-family: var(--arabic);
+  font-size: 12px;
+  color: var(--accent-deep);
+  background: var(--node-bg);
+  border: 1px solid var(--sidebar-border);
+  border-radius: 14px;
+  padding: 5px 12px;
+  min-height: 30px;
+  align-items: center;
+  cursor: pointer;
+}
+#propose-who:hover { border-color: var(--accent); }
+
+#propose-state { letter-spacing: 1px; align-items: center; }
+#propose-state.dirty { color: #b45309; font-weight: 700; }
+#propose-state.sent  { color: #15803d; font-weight: 700; }
+
+.pb-btn {
+  font-family: var(--arabic);
+  font-size: 12px;
+  padding: 6px 12px;
+  min-height: 32px;
+  border-radius: 8px;
+  border: 1px solid var(--sidebar-border);
+  background: var(--bg);
+  color: var(--accent-deep);
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+}
+.pb-btn:hover:not(:disabled) { background: var(--node-bg); }
+.pb-btn:disabled { opacity: .4; cursor: not-allowed; }
+.pb-btn.ghost { color: var(--accent-dim); }
+#btn-propose-send {
+  background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 500;
+}
+#btn-propose-send:hover:not(:disabled) { background: var(--accent-mid); }
+#btn-propose-send:disabled { background: var(--bg); color: var(--accent-dim); border-color: var(--sidebar-border); }
+
+.pb-note {
+  display: none;
+  color: var(--accent-dim);
+  font-family: var(--arabic);
+  font-size: 11px;
+  margin-right: auto;
+}
+
+/* ---- SHARED MODAL SHELL (who / send) ---- */
+#who-modal-overlay, #send-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--modal-overlay);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  z-index: 400;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
+}
+#who-modal-overlay.visible, #send-modal-overlay.visible { opacity: 1; pointer-events: all; }
+
+#who-modal, #send-modal {
+  background: var(--bg);
+  border: 1px solid var(--sidebar-border);
+  border-radius: 18px;
+  padding: 22px 24px;
+  width: 420px;
+  max-width: calc(100vw - 32px);
+  max-height: 85vh;
+  overflow-y: auto;
+  box-shadow: 8px 8px 20px var(--shadow-dark), -8px -8px 20px var(--shadow-light);
+  direction: rtl;
+  transform: scale(0.94) translateY(16px);
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+#who-modal-overlay.visible #who-modal,
+#send-modal-overlay.visible #send-modal { transform: scale(1) translateY(0); }
+
+#who-title, #send-title {
+  font-family: var(--arabic);
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--accent-deep);
+}
+#who-help {
+  font-family: var(--arabic);
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--accent-dim);
+  margin: 6px 0 12px;
+}
+
+#who-search, #send-note {
+  width: 100%;
+  padding: 11px 13px;
+  border: 1.5px solid var(--sidebar-border);
+  border-radius: 10px;
+  font-family: var(--arabic);
+  /* 16px: below it iOS Safari force-zooms the viewport on focus. */
+  font-size: 16px;
+  color: var(--accent-deep);
+  background: var(--node-bg);
+  outline: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+#who-search:focus, #send-note:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(109, 40, 217, 0.15);
+  background: #fff;
+}
+#send-note { margin: 6px 0 0; resize: vertical; }
+
+/* ---- WHO RESULTS ---- */
+#who-results {
+  margin-top: 10px;
+  max-height: 46vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.who-hint {
+  font-family: var(--arabic);
+  font-size: 12px;
+  color: var(--accent-dim);
+  padding: 10px 4px;
+}
+.who-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  /* 44px: below this a row is not reliably tappable on a phone. */
+  min-height: 44px;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  cursor: pointer;
+  text-align: right;
+  transition: background var(--transition), border-color var(--transition);
+}
+.who-row:hover { background: var(--node-bg); border-color: var(--sidebar-border); }
+.who-name {
+  font-family: var(--arabic);
+  font-size: 15px;
+  color: var(--accent-deep);
+}
+/* The ancestor chain is the only thing separating the 165 people named محمد. */
+.who-chain {
+  font-family: var(--arabic);
+  font-size: 11px;
+  color: var(--accent-dim);
+}
+
+/* ---- SEND ---- */
+#send-from-row {
+  font-family: var(--arabic);
+  font-size: 12px;
+  color: var(--accent-dim);
+  margin: 8px 0 10px;
+}
+#send-from { color: var(--accent-deep); font-weight: 500; }
+
+#send-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 12px;
+  max-height: 30vh;
+  overflow-y: auto;
+}
+.send-item {
+  font-family: var(--arabic);
+  font-size: 13px;
+  color: var(--accent-deep);
+  background: var(--node-bg);
+  border: 1px solid var(--sidebar-border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  direction: auto;
+}
+
+#send-error {
+  font-family: var(--arabic);
+  font-size: 12px;
+  line-height: 1.6;
+  color: #991b1b;
+  min-height: 18px;
+  margin: 8px 0 4px;
+}
+
+#send-actions { display: flex; gap: 8px; }
+#send-actions button {
+  flex: 1;
+  padding: 12px 16px;
+  min-height: 48px;
+  border-radius: 10px;
+  border: none;
+  font-family: var(--arabic);
+  font-size: 15px;
+  cursor: pointer;
+  background: var(--accent);
+  color: #fff;
+  transition: background 0.2s ease;
+}
+#send-actions button:hover:not(:disabled) { background: var(--accent-mid); }
+#send-actions button:disabled { opacity: .5; cursor: not-allowed; }
+#send-actions button.ghost {
+  background: var(--bg);
+  color: var(--accent-dim);
+  border: 1px solid var(--sidebar-border);
+  flex: 0 0 auto;
+}
+
+/* ---- MOBILE ---- */
+@media (max-width: 640px) {
+  #propose-bar { font-size: 11px; gap: 8px; }
+  body.propose-mode #app { padding-top: 76px; }
+  .pb-note { display: none !important; }
+  #who-modal, #send-modal {
+    width: 100%;
+    max-width: 100%;
+    border-radius: 18px 18px 0 0;
+    padding-bottom: calc(22px + env(safe-area-inset-bottom));
+    max-height: 88vh;
+  }
+  #who-modal-overlay, #send-modal-overlay { align-items: flex-end; }
+}
+
+/* :hover sticks after a tap on a touch screen. */
+@media (hover: none) {
+  .who-row:hover { background: transparent; border-color: transparent; }
+  .pb-btn:hover:not(:disabled) { background: var(--bg); }
+}

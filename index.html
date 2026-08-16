@@ -8,11 +8,15 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Inter:wght@400;500;600&family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet" />
 
-  <!-- USER VIEW. Deliberately does NOT load admin.css or assets/js/admin/*.
-       The customisation and editing code is not hidden from visitors, it is
-       never shipped to them. -->
+  <!-- PUBLIC VIEW. Ships the editing UI (edit.js) so visitors can suggest
+       changes, but deliberately NOT github.js, auth.js, publish.js or the
+       theme pickers. There is no credential on this page, so the worst a
+       visitor can do to the published site is ask: edits live in their own
+       browser and a proposal is a row in a review queue. Git is still the
+       only way anything becomes real. -->
   <link rel="stylesheet" href="assets/css/tokens.css" />
   <link rel="stylesheet" href="assets/css/base.css" />
+  <link rel="stylesheet" href="assets/css/propose.css" />
 </head>
 <body>
 <div id="app">
@@ -78,17 +82,103 @@
     </div>
   </div>
 
-  <!-- Node Panel -->
+  <!-- Node Panel. The add button only exists in propose mode (CSS-hidden
+       otherwise) — the page opens read-only. -->
   <div id="node-panel">
     <span id="panel-name"></span>
     <div id="panel-divider"></div>
+    <button class="panel-btn propose-only" id="btn-add-relative">إضافة قريب</button>
     <button class="panel-btn" id="btn-expand-level">مستوى واحد</button>
     <button class="panel-btn" id="btn-expand-subtree">توسيع الفرع</button>
     <button class="panel-btn" id="btn-close-panel" aria-label="إغلاق">✕</button>
   </div>
 
-  <!-- No add-relative modal here. Editing lives in assets/js/admin/edit.js,
-       which this page never loads, so the markup could never open. -->
+  <!-- Add Relative Modal. Shared with admin.html; here it only ever writes to
+       this browser's own draft. -->
+  <div id="modal-overlay">
+    <div id="modal">
+      <div id="modal-title">
+        <span>إضافة قريب</span>
+        <button id="btn-close-modal">✕</button>
+      </div>
+
+      <div class="modal-field">
+        <label class="modal-label" for="modal-relation">العلاقة</label>
+        <select id="modal-relation" class="modal-select">
+          <option value="son">ابن</option>
+          <option value="daughter">ابنة · عقدة نهائية</option>
+          <option value="wife">زوجة · عقدة نهائية</option>
+          <option value="father">أب</option>
+        </select>
+      </div>
+
+      <div class="modal-field">
+        <label class="modal-label" for="modal-name">الاسم</label>
+        <input type="text" id="modal-name" class="modal-input" dir="auto" placeholder="أدخل الاسم / Enter name..." />
+      </div>
+
+      <div class="modal-field" id="modal-terminal-hint">
+        البنت والزوجة عقدتان نهائيتان: لا يمكن إضافة أحد إليهما لاحقاً.
+      </div>
+
+      <!-- Gender follows from the relation, so there is nothing to pick. Kept in
+           the DOM but hidden, so any code still querying it keeps working. -->
+      <div class="modal-field" id="modal-gender-field" style="display:none">
+        <label class="modal-label">الجنس</label>
+        <div class="modal-radio-group">
+          <label class="modal-radio-label">
+            <input type="radio" name="modal-gender" value="male" checked />
+            <span>ذكر</span>
+          </label>
+          <label class="modal-radio-label">
+            <input type="radio" name="modal-gender" value="female" />
+            <span>أنثى</span>
+          </label>
+        </div>
+      </div>
+
+      <button id="btn-save-relative">حفظ</button>
+    </div>
+  </div>
+
+  <!-- Propose bar. The toggle is always visible; the rest appears with mode. -->
+  <div id="propose-bar">
+    <button id="propose-toggle">✎ اقتراح تعديل</button>
+    <span class="propose-only" id="propose-who">من أنت؟</span>
+    <span class="propose-only" id="propose-state"></span>
+    <button class="propose-only pb-btn" id="btn-propose-undo" disabled>&#8630;</button>
+    <button class="propose-only pb-btn" id="btn-propose-send" disabled>إرسال للمراجعة ↑</button>
+    <span class="propose-only pb-note">تعديلاتك تظهر لك فقط حتى تُعتمد</span>
+  </div>
+
+  <!-- "Who are you?" — claims a node as this visitor's identity, so proposals
+       carry a name. Honour system; see propose.js. -->
+  <div id="who-modal-overlay">
+    <div id="who-modal">
+      <div id="who-title">من أنت في الشجرة؟</div>
+      <div id="who-help">ابحث عن اسمك. اقتراحاتك سترسل باسمك.</div>
+      <input type="text" id="who-search" dir="auto" placeholder="اسمك · your name" autocomplete="off" />
+      <div id="who-results"></div>
+      <button id="who-cancel" class="pb-btn ghost">لاحقاً</button>
+    </div>
+  </div>
+
+  <!-- Send — review the batch and add a note before submitting. -->
+  <div id="send-modal-overlay">
+    <div id="send-modal">
+      <div id="send-title">إرسال الاقتراح</div>
+      <div id="send-from-row">من: <span id="send-from"></span></div>
+      <div id="send-list"></div>
+      <label class="modal-label" for="send-note">ملاحظة (اختياري)</label>
+      <textarea id="send-note" rows="3" dir="auto"
+        placeholder="مثال: والده هو محمود وليس حسن · or: فاطمة is a woman, not a man"></textarea>
+      <div id="send-error"></div>
+      <div id="send-actions">
+        <button id="send-submit">إرسال</button>
+        <button id="send-cancel" class="ghost">إلغاء</button>
+      </div>
+    </div>
+  </div>
 
   <script src="assets/vendor/d3.min.js"></script>
   <script src="data/names.js"></script>
@@ -103,6 +193,11 @@
   <script src="assets/js/core/render.js"></script>
   <script src="assets/js/core/interactions.js"></script>
   <script src="assets/js/core/search.js"></script>
+
+  <script src="assets/js/changelog.js"></script>
+  <script src="assets/js/edit.js"></script>
+  <script src="assets/js/propose.js"></script>
+  <script src="assets/js/propose-ui.js"></script>
 
   <script src="assets/js/viewer.js"></script>
 </body>

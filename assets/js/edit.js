@@ -1,6 +1,13 @@
 /* ============================================================================
-   edit.js — Structural editing. Loaded by admin.html ONLY — the user view
-   cannot add or rename anyone because this file is never fetched.
+   edit.js — Structural editing UI. Loaded by BOTH pages.
+
+   Moved out of assets/js/admin/ when visitors gained the ability to propose
+   changes. The security boundary is no longer "who has the editing code" but
+   "who has a write credential": this file only ever mutates the local draft in
+   the visitor's own browser. github.js — the only thing that can write to the
+   repo — stays admin-only, so a proposer can edit their copy of the tree and
+   submit a suggestion, and still cannot touch the site.
+
    Classic script (no ES modules) so the site still works over file://.
 ============================================================================ */
 
@@ -31,6 +38,10 @@ function initModal() {
 }
 
 function openModal(personId) {
+  // Same guard as startEditName: the add button is CSS-hidden outside propose
+  // mode, but nothing should depend on CSS to stay read-only.
+  if (typeof FTPropose !== 'undefined' && !FTPropose.isOn()) return;
+
   // Layer 2 of the guard: even if the button were somehow clickable.
   if (isTerminal(personId)) return;
 
@@ -168,6 +179,13 @@ function saveRelative() {
 // =============================================================================
 
 function startEditName(personId) {
+  // render.js calls this on every name click, and index.html now loads this
+  // file — so without this guard the public read-only view would let anyone
+  // rename by clicking. Harmless to the site (edits are local) but wrong:
+  // read-only must read as read-only. admin.html has no FTPropose, and there
+  // editing is always on.
+  if (typeof FTPropose !== 'undefined' && !FTPropose.isOn()) return;
+
   const person = state.people[personId];
   if (!person) return;
 

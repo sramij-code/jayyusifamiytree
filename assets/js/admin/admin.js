@@ -10,6 +10,11 @@ function initEventListeners() {
   document.getElementById('btn-expand-subtree').addEventListener('click', () => {
     if (state.selectedNodeId) expandSubtree(state.selectedNodeId);
   });
+  // ⌘↓ is the only other way to reach expandOneLevel, so without this button
+  // the feature does not exist on a touch device.
+  document.getElementById('btn-expand-level').addEventListener('click', () => {
+    if (state.selectedNodeId) expandOneLevelFromPanel(state.selectedNodeId);
+  });
   document.getElementById('btn-add-relative').addEventListener('click', () => {
     if (state.selectedNodeId && !isTerminal(state.selectedNodeId)) openModal(state.selectedNodeId);
   });
@@ -33,7 +38,7 @@ function init() {
   render(false);
   renderSearchResults('', document.getElementById('search-results'));
   markDirty();
-  setTimeout(() => centerOnNode(state.loggedInUser, true), 100);
+  setTimeout(() => fitToNodes([...state.visibleNodes], true), 100);
 }
 
 document.addEventListener('DOMContentLoaded', init);

@@ -15,6 +15,19 @@ function initModal() {
   });
   document.getElementById('btn-close-modal').addEventListener('click', closeModal);
   document.getElementById('btn-save-relative').addEventListener('click', saveRelative);
+
+  // Escape closed the admin gate and the inline name editor but not this one.
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    if (!document.getElementById('modal-overlay').classList.contains('visible')) return;
+    closeModal();
+  });
+
+  // On a phone the name field is the whole point of the dialog, and the
+  // on-screen keyboard's Go/Enter key is the natural way to commit.
+  document.getElementById('modal-name').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); saveRelative(); }
+  });
 }
 
 function openModal(personId) {
@@ -37,7 +50,12 @@ function openModal(personId) {
   sel.value = 'son';
 
   document.getElementById('modal-overlay').classList.add('visible');
-  setTimeout(() => document.getElementById('modal-name').focus(), 300);
+
+  // Autofocus summons the on-screen keyboard, which on a short phone viewport
+  // covers the dialog it was opened for. Let the user tap the field.
+  if (!window.matchMedia('(max-width: 640px)').matches) {
+    setTimeout(() => document.getElementById('modal-name').focus(), 300);
+  }
 }
 
 function closeModal() {

@@ -695,15 +695,150 @@ html, body {
 #status-bar .s-bright { color: var(--accent-deep); }
 
 /* ---- RESPONSIVE ----
-   Restored: the CSS split flattened this out of its @media wrapper, so the
-   narrow-screen collapse was applying at every width and the sidebar was
-   permanently 56px with its contents hidden. */
+   The previous rule collapsed the sidebar to a 56px rail. That looked like an
+   icon strip but wasn't: 56px minus 28px padding leaves 28px, two flex:1
+   buttons with a 6px gap get 11px each, and each carries 18px of padding and
+   border — so no glyph rendered at all, and the blank left rectangle still
+   fired EXPAND ALL over 1,746 people. Search was hidden outright, which on a
+   1,746-person tree (165 of them named محمد) removed the only way to find
+   anyone.
+
+   Instead the sidebar becomes a bottom sheet: a 48px grab bar always visible,
+   swiping/tapping it up reveals search and results at full width. */
 @media (max-width: 640px) {
-  #sidebar { width: 56px !important; min-width: 56px !important; }
-  #sidebar-header, #sidebar-search-section, #search-results,
-  #boot-seq, #results-label { display: none; }
+  #sidebar {
+    position: fixed;
+    inset: auto 0 0 0;
+    width: 100% !important;
+    min-width: 0 !important;
+    height: 62vh;
+    /* Only the grab bar peeks above the fold until the sheet is opened. */
+    transform: translateY(calc(100% - var(--sheet-peek)));
+    transition: transform 0.28s cubic-bezier(0.32, 0.72, 0, 1);
+    z-index: 150;
+    border-right: none;
+    border-top: 1px solid var(--sidebar-border);
+    border-radius: 16px 16px 0 0;
+    box-shadow: 0 -6px 24px rgba(59, 7, 100, 0.13);
+    padding: 0 14px calc(14px + env(safe-area-inset-bottom));
+    gap: 10px;
+  }
+
+  #sidebar.sheet-open { transform: translateY(0); }
+
+  /* Chrome that costs vertical space and says nothing a phone user needs. */
+  #sidebar-header, #boot-seq { display: none; }
+
+  /* The point of the exercise: these stay. */
+  #sidebar-search-section, #search-results { display: block; }
+
+  /* 16px is the threshold below which iOS Safari force-zooms the viewport on
+     focus and never zooms back out. Everything else here is touch sizing. */
+  #search-input { font-size: 16px; padding: 11px 12px; }
+  #results-label { font-size: 11px; margin-bottom: 8px; }
+  .search-result-item { padding: 11px 6px; font-size: 13px; min-height: 44px; }
+  .result-chain { font-size: 11px; margin-left: 34px; }
+  .result-gen { font-size: 11px; width: 38px; }
+
+  #sidebar-actions { gap: 8px; flex-wrap: nowrap; }
+  .action-btn { padding: 12px 8px; font-size: 12px; min-height: 44px; }
+
   #sidebar-resizer { display: none; }
+
+  /* The canvas keeps the full width now; the sheet floats over it. */
+  #canvas-container { width: 100%; }
+
+  /* Desktop pointer instructions on a device with no wheel, no drag cursor
+     and no ⌘ key. The status bar keeps only the node count. */
+  .canvas-hint { display: none; }
+  #status-bar { font-size: 11px; gap: 12px; padding: 0 12px; }
+  #status-bar span:nth-child(n+4) { display: none; }
+
+  /* The panel's base z-index (100) is below the sheet's (150), so an open
+     sheet would bury its buttons — including admin's add-relative. Rather
+     than float the panel over the search results it would obscure, hide it
+     while the sheet is open: the node it describes is behind the sheet
+     anyway, and picking a result closes the sheet and brings it back. */
+  #node-panel {
+    bottom: calc(var(--sheet-peek) + 12px + env(safe-area-inset-bottom));
+    max-width: calc(100vw - 20px);
+    flex-wrap: wrap;
+    justify-content: center;
+    row-gap: 8px;
+    padding: 10px 14px;
+  }
+  body.sheet-is-open #node-panel {
+    opacity: 0;
+    pointer-events: none;
+    transform: translateX(-50%) translateY(20px);
+  }
+  #panel-name { font-size: 15px; min-width: 0; flex: 1 1 100%; text-align: center; }
+  #panel-divider { display: none; }
+  .panel-btn { padding: 11px 16px; font-size: 14px; min-height: 44px; }
+  #btn-close-panel { padding: 9px 13px; min-height: 44px; }
+
+  /* A 360px card on a 375px screen, and in landscape it exceeds the viewport
+     with no way to scroll to the save button (body is overflow:hidden). */
+  #modal-overlay { align-items: flex-end; }
+  #modal {
+    width: 100%;
+    max-width: 100%;
+    border-radius: 18px 18px 0 0;
+    padding: 22px 20px calc(22px + env(safe-area-inset-bottom));
+    max-height: 88vh;
+    overflow-y: auto;
+  }
+  .modal-input, .modal-select { font-size: 16px; padding: 11px 12px; }
+  #btn-save-relative { min-height: 48px; font-size: 16px; }
+  #btn-close-modal { min-width: 44px; min-height: 44px; }
 }
+
+/* ---- MOBILE SHEET GRAB BAR ----
+   Injected by sidebar-resize.js only under the breakpoint, so the desktop DOM
+   is unchanged. --sheet-peek is how much of the sheet stays on screen. */
+:root { --sheet-peek: 48px; }
+
+#sheet-handle { display: none; }
+
+@media (max-width: 640px) {
+  #sheet-handle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    height: var(--sheet-peek);
+    min-height: var(--sheet-peek);
+    flex-shrink: 0;
+    margin: 0 -14px;
+    padding: 0 14px;
+    border-bottom: 1px solid transparent;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--accent-mid);
+    cursor: pointer;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #sidebar.sheet-open #sheet-handle { border-bottom-color: var(--sidebar-border); }
+  #sheet-grip {
+    width: 34px; height: 4px; border-radius: 2px;
+    background: var(--sidebar-border);
+  }
+  #sheet-label { letter-spacing: 0.5px; }
+}
+
+/* ---- TOUCH / POINTER ----
+   :hover on a touch screen sticks after the tap, leaving buttons stuck in
+   their lifted state. Only apply the transform-based hovers to real pointers.  */
+@media (hover: none) {
+  .panel-btn:hover { transform: none; background: var(--bg); }
+  .action-btn:hover { background: var(--bg); color: var(--accent-mid); }
+  .search-result-item:hover { color: var(--accent-mid); }
+}
+
+/* d3.zoom binds its own touch handlers and preventDefaults them, but without
+   this the browser can claim the gesture for page zoom/scroll first. */
+#tree-svg { touch-action: none; }
 
 
 /* ---- SIDEBAR RESIZER ----

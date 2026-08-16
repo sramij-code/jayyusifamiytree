@@ -317,9 +317,49 @@ body.admin-mode .admin-trigger {
   background: var(--accent-mid);
 }
 
-  </style>
-
 /* Publish bar is admin-only too. */
 #publish-bar { display: none; }
 body.admin-mode #publish-bar { display: flex; }
 body:not(.admin-mode) #app { padding-top: 0; }
+
+/* ---- ADMIN ON MOBILE ----
+   Editing has to work on a phone: the owner adds relatives from wherever they
+   happen to be. Theming does not — colour pickers need precision and a big
+   canvas, so they stay desktop-only rather than being shrunk into
+   unusability.
+
+   The node panel is the reason this block exists. At 375px the admin panel's
+   min-content width is ~457px (name + إضافة قريب + توسيع الفرع + ✕), so with
+   left:50%/translateX(-50%) the close button was clipped off the left edge for
+   every person in the tree. The shared breakpoint in base.css already wraps
+   the panel; this keeps the admin-only button in that flow. */
+@media (max-width: 640px) {
+  /* Two 642px-tall picker columns over a ~499px canvas, plus a bottom row that
+     lands on top of the node panel. Not worth rescuing on a phone. */
+  body.admin-mode #bg-picker-wrap,
+  body.admin-mode #bottom-picker-wrap {
+    display: none !important;
+  }
+
+  /* Wraps to two rows instead of overflowing ~354px off-screen. */
+  #publish-bar {
+    height: auto;
+    min-height: 34px;
+    flex-wrap: wrap;
+    row-gap: 6px;
+    padding: 7px 12px calc(7px + env(safe-area-inset-top));
+    font-size: 11px;
+  }
+  .pub-btn { padding: 9px 12px; font-size: 11px; min-height: 40px; }
+  .pub-note { flex: 1 1 100%; font-size: 10px; }
+
+  /* Give the wrapped bar room, or it covers the top of the canvas. */
+  body.admin-mode #app { padding-top: 78px; }
+
+  #btn-add-relative { flex: 1 1 auto; }
+
+  #admin-password { font-size: 16px; min-height: 44px; }
+  #admin-submit { min-height: 48px; font-size: 15px; }
+  #admin-modal { width: 100%; max-width: calc(100vw - 32px); }
+  .admin-trigger { padding: 6px 4px; }
+}

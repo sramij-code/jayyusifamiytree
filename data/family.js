@@ -10475,18 +10475,6 @@ window.FT_FAMILY = {
       "name": "مالك   ليث",
       "gender": "male",
       "generation": 10
-    },
-    "p4ogl6zg6": {
-      "id": "p4ogl6zg6",
-      "name": "Ola3",
-      "gender": "female",
-      "generation": 1
-    },
-    "pgr9q9h1d": {
-      "id": "pgr9q9h1d",
-      "name": "Ola4",
-      "gender": "female",
-      "generation": 1
     }
   },
   "partnerships": [
@@ -18165,22 +18153,6 @@ window.FT_FAMILY = {
       "children": [
         "p1747"
       ]
-    },
-    {
-      "id": "pptuxa2kvk",
-      "partners": [
-        "p2",
-        "p4ogl6zg6"
-      ],
-      "children": []
-    },
-    {
-      "id": "ppgsxvalwn",
-      "partners": [
-        "p2",
-        "pgr9q9h1d"
-      ],
-      "children": []
     }
   ],
   "loggedInUser": "p1",

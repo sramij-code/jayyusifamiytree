@@ -187,7 +187,10 @@
     <button id="btn-publish" class="pub-btn" disabled>PUBLISH THEME &darr;</button>
     <span class="pub-sep">|</span>
     <span id="family-state">○ TREE IN SYNC</span>
-    <button id="btn-commit-family" class="pub-btn" disabled>CONNECT GITHUB &hellip;</button>
+    <!-- Not disabled in markup: with no token this button's job is to collect
+         one, and that must work even if something later in init() fails. JS
+         only ever disables it, never enables it. -->
+    <button id="btn-commit-family" class="pub-btn">CONNECT GITHUB &hellip;</button>
     <button id="btn-publish-family" class="pub-btn ghost">EXPORT &darr;</button>
     <button id="btn-discard-family" class="pub-btn ghost" disabled>DISCARD EDITS</button>
     <button id="btn-reset-draft" class="pub-btn ghost">DISCARD THEME</button>

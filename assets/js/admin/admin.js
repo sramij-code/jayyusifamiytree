@@ -3,6 +3,15 @@
 ============================================================================ */
 
 function initEventListeners() {
+  // Publish-bar wiring first. These are the controls that get the work off
+  // this device, so they must survive a failure in the tree wiring below —
+  // otherwise a bug in the canvas means unpublished edits cannot be saved.
+  document.getElementById('btn-publish').addEventListener('click', publishTheme);
+  document.getElementById('btn-publish-family').addEventListener('click', publishFamily);
+  document.getElementById('btn-commit-family').addEventListener('click', commitFamily);
+  document.getElementById('btn-discard-family').addEventListener('click', discardFamilyDraft);
+  document.getElementById('btn-reset-draft').addEventListener('click', () => FTAdminDraft.reset());
+
   document.getElementById('tree-svg').addEventListener('click', () => hideNodePanel());
   document.getElementById('btn-close-panel').addEventListener('click', () => hideNodePanel());
   document.getElementById('btn-expand-all').addEventListener('click', expandAll);
@@ -19,12 +28,6 @@ function initEventListeners() {
   document.getElementById('btn-add-relative').addEventListener('click', () => {
     if (state.selectedNodeId && !isTerminal(state.selectedNodeId)) openModal(state.selectedNodeId);
   });
-
-  document.getElementById('btn-publish').addEventListener('click', publishTheme);
-  document.getElementById('btn-publish-family').addEventListener('click', publishFamily);
-  document.getElementById('btn-commit-family').addEventListener('click', commitFamily);
-  document.getElementById('btn-discard-family').addEventListener('click', discardFamilyDraft);
-  document.getElementById('btn-reset-draft').addEventListener('click', () => FTAdminDraft.reset());
 }
 
 function init() {
@@ -47,6 +50,13 @@ function init() {
     expandNode(home, true);
   }
 
+  // Publish-bar state before any rendering. It only reads localStorage, so it
+  // cannot fail on tree data — and running it here means a later failure in
+  // render or search still leaves the bar usable instead of stranding its
+  // buttons in their markup state.
+  markDirty();
+  markFamilyDirty();
+
   initSVG();
   initEventListeners();
   initSearch();
@@ -54,8 +64,6 @@ function init() {
   initModal();
   render(false);
   renderSearchResults('', document.getElementById('search-results'));
-  markDirty();
-  markFamilyDirty();
   setTimeout(() => fitToNodes([...state.visibleNodes], true), 100);
 }
 

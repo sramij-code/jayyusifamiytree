@@ -57,22 +57,50 @@ function updateReviewBadge() {
   badge.style.display = n ? '' : 'none';
 }
 
+// Reviewed proposals are hidden by default.
+//
+// They used to stay in the list, dimmed — which reads as "your rejection did
+// not take". The queue should show what still needs a decision; the rest is
+// history, reachable but not in the way.
+let _showReviewed = false;
+
 function renderReviewList() {
   const list = document.getElementById('review-list');
   list.textContent = '';
 
   const all = FTReview.all();
+  const pending = all.filter(r => r._state === 'pending');
+  const reviewed = all.filter(r => r._state !== 'pending');
+  const shown = _showReviewed ? all : pending;
+
   if (all.length === 0) {
-    const empty = document.createElement('div');
-    empty.className = 'review-empty';
-    empty.textContent = 'لا اقتراحات بعد';
-    list.appendChild(empty);
+    list.appendChild(reviewEmpty('لا اقتراحات بعد'));
     return;
   }
-
-  for (const row of all) {
-    list.appendChild(reviewCard(row));
+  if (shown.length === 0) {
+    list.appendChild(reviewEmpty('لا اقتراحات قيد المراجعة ✓'));
   }
+
+  for (const row of shown) list.appendChild(reviewCard(row));
+
+  // Only offer the toggle when there is actually something behind it.
+  if (reviewed.length > 0) {
+    const toggle = reviewBtn(
+      _showReviewed
+        ? 'إخفاء المراجَعة (' + reviewed.length + ')'
+        : 'إظهار المراجَعة (' + reviewed.length + ')',
+      'ghost',
+      () => { _showReviewed = !_showReviewed; renderReviewList(); });
+    toggle.classList.add('review-toggle');
+    list.appendChild(toggle);
+  }
+}
+
+function reviewEmpty(text) {
+  const el = document.createElement('div');
+  el.className = 'review-empty';
+  el.textContent = text;
+  return el;
 }
 
 function reviewCard(row) {

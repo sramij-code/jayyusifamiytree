@@ -222,17 +222,23 @@ var FTReview = window.FTReview = (function () {
       return true;
     },
 
-    // Rejection is local until committed. Stored per-device for now, which is
-    // enough while one person reviews; committing data/proposals-reviewed.json
-    // is what would make it durable and shared.
+    // Rejection is local until committed. Stored per-device, which is enough
+    // while one person reviews; committing data/proposals-reviewed.json is what
+    // would make it durable and shared across devices.
+    //
+    // Returns false if the write failed, so the caller can say so — a silent
+    // failure here means the rejection reappears on the next load and looks
+    // like the button did nothing.
     reject: function (row, note) {
       if (previewing && previewing.id === row.id) this.dismiss();
       const all = readLocal(REJECTED_KEY, []);
       all.push({ id: row.id, at: new Date().toISOString(), note: note || null });
-      try { localStorage.setItem(REJECTED_KEY, JSON.stringify(all)); } catch (e) { /* not durable */ }
+      let stored = true;
+      try { localStorage.setItem(REJECTED_KEY, JSON.stringify(all)); }
+      catch (e) { stored = false; }
       const r = rows.find(x => x.id === row.id);
       if (r) r._state = 'rejected';
-      return true;
+      return stored;
     },
 
     unreject: function (id) {

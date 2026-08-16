@@ -34,7 +34,11 @@
 // plenty of other things, and only this one is worth retrying.
 function isFastForwardRace(err) {
   const m = String((err && err.message) || '');
-  return /not a fast forward/i.test(m) || /\b422\b/.test(m) && /refs\/heads/.test(m);
+  return /not a fast forward/i.test(m) || (/\b422\b/.test(m) && /refs\/heads/.test(m));
+}
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 var FTGitHub = window.FTGitHub = (function () {
@@ -189,13 +193,29 @@ var FTGitHub = window.FTGitHub = (function () {
       if (FTChangeLog.count() === 0) throw new Error('No changes to publish.');
 
       const base = '/repos/' + OWNER + '/' + REPO;
-      const ATTEMPTS = 3;
+      const ATTEMPTS = 4;
 
       for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
-        if (attempt > 1) say('branch moved, rebasing…');
+        if (attempt > 1) {
+          // Wait before re-reading, and lengthen each time.
+          //
+          // Retrying instantly was useless against the actual cause. GitHub's
+          // REST API is read-after-write eventually consistent: for a second or
+          // two after a commit, GET /git/ref can still answer with the previous
+          // sha. An immediate retry re-reads that same stale value and fails
+          // identically, so all attempts burned in under a second and the user
+          // saw the 422 anyway. The delay is what lets the read catch up.
+          const waitMs = 600 * Math.pow(2, attempt - 2);   // 600, 1200, 2400
+          say('branch moved, retrying in ' + Math.round(waitMs / 100) / 10 + 's…');
+          await sleep(waitMs);
+        }
 
         say('reading branch…');
-        const ref = await api(base + '/git/ref/heads/' + BRANCH, { method: 'GET' });
+        // no-cache so neither the browser nor a CDN hands back a ref we have
+        // already seen be wrong.
+        const ref = await api(base + '/git/ref/heads/' + BRANCH, {
+          method: 'GET', headers: { 'Cache-Control': 'no-cache' },
+        });
         const headSha = ref.object.sha;
         const headCommit = await api(base + '/git/commits/' + headSha, { method: 'GET' });
 
@@ -247,6 +267,13 @@ var FTGitHub = window.FTGitHub = (function () {
           });
         } catch (e) {
           if (isFastForwardRace(e) && attempt < ATTEMPTS) continue;
+          if (isFastForwardRace(e)) {
+            // Out of attempts. Nothing is lost — the draft is untouched — but
+            // say what to do, because the raw GitHub wording explains nothing.
+            throw new Error('The branch kept moving while publishing (' + ATTEMPTS +
+              ' attempts). Your edits are safe in the draft — reload the page ' +
+              'and press COMMIT again.');
+          }
           throw e;
         }
 

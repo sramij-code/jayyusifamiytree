@@ -570,3 +570,5 @@ body:not(.admin-mode) #app { padding-top: 0; }
   .review-btn:hover:not(:disabled) { background: var(--accent); }
   .review-btn.ghost:hover { background: var(--bg); }
 }
+/* Toggle at the end of the proposals list, for history that is hidden by default. */
+.review-btn.review-toggle { align-self: flex-start; margin-top: 4px; font-size: 11px; }

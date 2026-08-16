@@ -10475,12 +10475,6 @@ window.FT_FAMILY = {
       "name": "مالك   ليث",
       "gender": "male",
       "generation": 10
-    },
-    "p1750": {
-      "id": "p1750",
-      "name": "Ola",
-      "gender": "female",
-      "generation": 1
     }
   },
   "partnerships": [
@@ -18159,14 +18153,6 @@ window.FT_FAMILY = {
       "children": [
         "p1747"
       ]
-    },
-    {
-      "id": "pp1751",
-      "partners": [
-        "p2",
-        "p1750"
-      ],
-      "children": []
     }
   ],
   "loggedInUser": "p1",

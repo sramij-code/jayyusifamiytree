@@ -10475,6 +10475,12 @@ window.FT_FAMILY = {
       "name": "مالك   ليث",
       "gender": "male",
       "generation": 10
+    },
+    "p1750": {
+      "id": "p1750",
+      "name": "Ola",
+      "gender": "female",
+      "generation": 1
     }
   },
   "partnerships": [
@@ -18153,10 +18159,19 @@ window.FT_FAMILY = {
       "children": [
         "p1747"
       ]
+    },
+    {
+      "id": "pp1751",
+      "partners": [
+        "p2",
+        "p1750"
+      ],
+      "children": []
     }
   ],
   "loggedInUser": "p1",
   "root": "p1"
-};// Top-level `var` so the binding exists for classic scripts, not just as a
+};
+// Top-level `var` so the binding exists for classic scripts, not just as a
 // window property. Keeps the data layer swappable without touching core.
 var familyData = window.FT_FAMILY;

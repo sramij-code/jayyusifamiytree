@@ -28,6 +28,15 @@
    -> commit -> move the ref. More calls, but atomic.
 ============================================================================ */
 
+// A lost race for the branch tip, as opposed to a real failure. GitHub answers
+// 422 "Update is not a fast forward" when the ref moved between our read and
+// our write. Matched on the message as well as the status because 422 covers
+// plenty of other things, and only this one is worth retrying.
+function isFastForwardRace(err) {
+  const m = String((err && err.message) || '');
+  return /not a fast forward/i.test(m) || /\b422\b/.test(m) && /refs\/heads/.test(m);
+}
+
 var FTGitHub = window.FTGitHub = (function () {
   const OWNER  = 'sramij-code';
   const REPO   = 'jayyusifamiytree';
@@ -100,6 +109,11 @@ var FTGitHub = window.FTGitHub = (function () {
           OWNER + '/' + REPO + ' under its selected repositories, or the branch ' +
           BRANCH + ' does not exist. ' + detail);
       }
+      if (res.status === 422) {
+        // Kept verbatim: publish() matches on this text to detect a lost race
+        // for the branch tip and retry from a fresh read.
+        throw new Error('GitHub 422 on ' + path + '. ' + detail);
+      }
       throw new Error('GitHub ' + res.status + ' on ' + path + '. ' + detail);
     }
     return res.status === 204 ? null : res.json();
@@ -156,65 +170,88 @@ var FTGitHub = window.FTGitHub = (function () {
     },
 
     // blobs -> tree -> commit -> ref. Both files in one commit.
+    //
+    // Retries once if the branch moves mid-flight. That is not hypothetical: it
+    // happened the first time two commits landed close together — the ref was
+    // read, then main advanced, and the PATCH was correctly refused with
+    // "Update is not a fast forward". The edits were safe in the draft but the
+    // only way forward was to reload and start over.
+    //
+    // Rebuilding on the fresh tip is the whole fix. These are file-level
+    // writes, so a moved branch is not a content conflict: re-read the ref,
+    // rebase the tree onto the new commit, and the update fast-forwards. The
+    // one thing that must be re-read rather than reused is data/changes.jsonl,
+    // since the commit we lost the race to may have appended to it — reusing
+    // the stale copy would silently drop its lines.
     publish: async function (progress) {
       const say = progress || function () {};
       if (!token()) throw new Error('No GitHub token set.');
       if (FTChangeLog.count() === 0) throw new Error('No changes to publish.');
 
       const base = '/repos/' + OWNER + '/' + REPO;
+      const ATTEMPTS = 3;
 
-      say('reading branch…');
-      const ref = await api(base + '/git/ref/heads/' + BRANCH, { method: 'GET' });
-      const headSha = ref.object.sha;
-      const headCommit = await api(base + '/git/commits/' + headSha, { method: 'GET' });
+      for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
+        if (attempt > 1) say('branch moved, rebasing…');
 
-      say('reading changelog…');
-      const existing = await fetchExistingLog();
-      const appended = (existing ? existing.replace(/\n*$/, '\n') : '') +
-                       FTChangeLog.toJSONL() + '\n';
+        say('reading branch…');
+        const ref = await api(base + '/git/ref/heads/' + BRANCH, { method: 'GET' });
+        const headSha = ref.object.sha;
+        const headCommit = await api(base + '/git/commits/' + headSha, { method: 'GET' });
 
-      say('uploading files…');
-      const familyBlob = await api(base + '/git/blobs', {
-        method: 'POST',
-        body: JSON.stringify({ content: utf8ToBase64(familyFileBody()), encoding: 'base64' }),
-      });
-      const logBlob = await api(base + '/git/blobs', {
-        method: 'POST',
-        body: JSON.stringify({ content: utf8ToBase64(appended), encoding: 'base64' }),
-      });
+        // Inside the loop deliberately: see the note above about changes.jsonl.
+        say('reading changelog…');
+        const existing = await fetchExistingLog();
+        const appended = (existing ? existing.replace(/\n*$/, '\n') : '') +
+                         FTChangeLog.toJSONL() + '\n';
 
-      say('building commit…');
-      // base_tree keeps every other file in the repo untouched.
-      const tree = await api(base + '/git/trees', {
-        method: 'POST',
-        body: JSON.stringify({
-          base_tree: headCommit.tree.sha,
-          tree: [
-            { path: FAMILY_PATH, mode: '100644', type: 'blob', sha: familyBlob.sha },
-            { path: LOG_PATH,    mode: '100644', type: 'blob', sha: logBlob.sha },
-          ],
-        }),
-      });
+        say('uploading files…');
+        const familyBlob = await api(base + '/git/blobs', {
+          method: 'POST',
+          body: JSON.stringify({ content: utf8ToBase64(familyFileBody()), encoding: 'base64' }),
+        });
+        const logBlob = await api(base + '/git/blobs', {
+          method: 'POST',
+          body: JSON.stringify({ content: utf8ToBase64(appended), encoding: 'base64' }),
+        });
 
-      const commit = await api(base + '/git/commits', {
-        method: 'POST',
-        body: JSON.stringify({
-          message: FTChangeLog.commitMessage(),
-          tree: tree.sha,
-          parents: [headSha],
-        }),
-      });
+        say('building commit…');
+        // base_tree keeps every other file in the repo untouched.
+        const tree = await api(base + '/git/trees', {
+          method: 'POST',
+          body: JSON.stringify({
+            base_tree: headCommit.tree.sha,
+            tree: [
+              { path: FAMILY_PATH, mode: '100644', type: 'blob', sha: familyBlob.sha },
+              { path: LOG_PATH,    mode: '100644', type: 'blob', sha: logBlob.sha },
+            ],
+          }),
+        });
 
-      say('moving branch…');
-      // No force: if someone else pushed since the read above, this fails
-      // rather than discarding their commit. The local draft survives, so the
-      // fix is to reload and publish again.
-      await api(base + '/git/refs/heads/' + BRANCH, {
-        method: 'PATCH',
-        body: JSON.stringify({ sha: commit.sha, force: false }),
-      });
+        const commit = await api(base + '/git/commits', {
+          method: 'POST',
+          body: JSON.stringify({
+            message: FTChangeLog.commitMessage(),
+            tree: tree.sha,
+            parents: [headSha],
+          }),
+        });
 
-      return { sha: commit.sha, count: FTChangeLog.count(), branch: BRANCH };
+        say('moving branch…');
+        try {
+          // Still no force: losing the race must never discard someone else's
+          // commit. Retrying from a fresh read is the safe way to win it.
+          await api(base + '/git/refs/heads/' + BRANCH, {
+            method: 'PATCH',
+            body: JSON.stringify({ sha: commit.sha, force: false }),
+          });
+        } catch (e) {
+          if (isFastForwardRace(e) && attempt < ATTEMPTS) continue;
+          throw e;
+        }
+
+        return { sha: commit.sha, count: FTChangeLog.count(), branch: BRANCH, attempts: attempt };
+      }
     },
   };
 })();

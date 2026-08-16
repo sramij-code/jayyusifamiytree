@@ -79,11 +79,26 @@ var FTGitHub = window.FTGitHub = (function () {
     if (!res.ok) {
       let detail = '';
       try { detail = (await res.json()).message || ''; } catch (e) { /* body not json */ }
-      // 401/403 is nearly always the token: absent, expired, or missing the
-      // Contents scope. Say so rather than surfacing a bare status code.
-      if (res.status === 401 || res.status === 403) {
-        throw new Error('GitHub rejected the token (' + res.status + '). ' +
-          'Check it has not expired and has Contents: read and write on this repo. ' + detail);
+
+      // GitHub names the exact permission a fine-grained token was missing in
+      // this header. Far more useful than the generic message body.
+      const needs = res.headers.get('x-accepted-github-permissions') || '';
+
+      if (res.status === 401) {
+        throw new Error('Token rejected (401). It is invalid or expired. ' + detail);
+      }
+      if (res.status === 403) {
+        throw new Error(
+          'Token lacks permission (403) for ' + path + '. ' +
+          (needs ? 'GitHub requires: ' + needs + '. ' : '') +
+          'Fine-grained tokens need Repository permissions → Contents: Read and write, ' +
+          'with this repository selected. ' + detail);
+      }
+      if (res.status === 404) {
+        throw new Error(
+          'Not found (404) for ' + path + '. Either the token does not list ' +
+          OWNER + '/' + REPO + ' under its selected repositories, or the branch ' +
+          BRANCH + ' does not exist. ' + detail);
       }
       throw new Error('GitHub ' + res.status + ' on ' + path + '. ' + detail);
     }
@@ -123,14 +138,21 @@ var FTGitHub = window.FTGitHub = (function () {
     clearToken: function () { setToken(''); },
     branch: BRANCH,
 
-    // Cheap credential check that also confirms the token can actually write
-    // here, rather than only that it parses.
+    // Verify by calling what publish actually calls first.
+    //
+    // The obvious check — GET /repos and read .permissions.push — is worthless
+    // here: that field describes the authenticated USER's access to the repo,
+    // not the permissions granted to the token. As the repo owner it is always
+    // true, so a token with no Contents permission passed verification and
+    // then failed at publish with a 403.
+    //
+    // Reading a git ref requires Contents, so this catches that. Write cannot
+    // be proven without writing, so it is named as unverified rather than
+    // implied.
     verify: async function () {
-      const r = await api('/repos/' + OWNER + '/' + REPO, { method: 'GET' });
-      if (!r.permissions || !r.permissions.push) {
-        throw new Error('Token authenticates but has no write access to ' + OWNER + '/' + REPO + '.');
-      }
-      return r.full_name;
+      const base = '/repos/' + OWNER + '/' + REPO;
+      await api(base + '/git/ref/heads/' + BRANCH, { method: 'GET' });
+      return OWNER + '/' + REPO + ' (' + BRANCH + ')';
     },
 
     // blobs -> tree -> commit -> ref. Both files in one commit.

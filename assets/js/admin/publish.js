@@ -242,6 +242,7 @@ async function submitToken() {
   FTGitHub.setToken(t);
   try {
     const repo = await FTGitHub.verify();
+    err.textContent = '';
     closeTokenModal();
     // markFamilyDirty rewrites #family-state, so it has to run BEFORE the
     // confirmation or it silently erases it and the connect looks like a no-op.

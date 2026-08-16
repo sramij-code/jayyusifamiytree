@@ -10475,12 +10475,6 @@ window.FT_FAMILY = {
       "name": "مالك   ليث",
       "gender": "male",
       "generation": 10
-    },
-    "pg4gj1nbp": {
-      "id": "pg4gj1nbp",
-      "name": "Ola2",
-      "gender": "female",
-      "generation": 1
     }
   },
   "partnerships": [
@@ -18159,14 +18153,6 @@ window.FT_FAMILY = {
       "children": [
         "p1747"
       ]
-    },
-    {
-      "id": "ppzgevubo1",
-      "partners": [
-        "p2",
-        "pg4gj1nbp"
-      ],
-      "children": []
     }
   ],
   "loggedInUser": "p1",

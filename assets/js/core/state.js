@@ -67,27 +67,52 @@ function invalidateCoupleMap() {
   _coupleMap = null;
 }
 
-// id -> { other, first }. `first` is true for partners[0], which keeps the
-// husband on the left deterministically instead of letting an x-order tie decide.
+// id -> [{ other, first }, ...], in partnership order.
+//
+// An array, not a single entry, because polygyny is supported: a man may appear
+// in several partnerships. The old scalar form silently kept only the LAST one,
+// so a second wife overwrote the first — the husband pointed at wife 2 while
+// wife 1 still pointed back at him. That asymmetry made collapseSubtree strand
+// earlier wives on the canvas and made expandOneLevel reveal only the last.
+//
+// `first` is true for partners[0], which keeps the husband on the left
+// deterministically instead of letting an x-order tie decide.
 function coupleMap() {
   if (_coupleMap) return _coupleMap;
   const m = Object.create(null);
   for (const pp of state.partnerships) {
     const [a, b] = pp.partners;
     if (a && b) {
-      m[a] = { other: b, first: true };
-      m[b] = { other: a, first: false };
+      (m[a] ||= []).push({ other: b, first: true });
+      (m[b] ||= []).push({ other: a, first: false });
     }
   }
   _coupleMap = m;
   return m;
 }
 
+// Every spouse of id. Callers that must act on the whole marriage set — showing
+// or hiding wives along with their husband — want this, not just one.
+function partnersOf(id) {
+  return coupleMap()[id] || [];
+}
+
+// Symmetric spouse test. Asking coupleMap()[a] alone is not enough: with two
+// wives, a's array contains both, but the answer must not depend on which of
+// the pair is passed first.
+function areSpouses(a, b) {
+  if (!a || !b) return false;
+  for (const c of partnersOf(a)) if (c.other === b) return true;
+  return false;
+}
+
+// The one spouse to seat adjacent to id. First visible wins, so the pairing is
+// stable as branches expand and collapse.
 function visiblePartnerOf(id, layout) {
-  const c = coupleMap()[id];
-  if (!c) return null;
-  if (!state.visibleNodes.has(c.other) || !layout[c.other]) return null;
-  return c;
+  for (const c of partnersOf(id)) {
+    if (state.visibleNodes.has(c.other) && layout[c.other]) return c;
+  }
+  return null;
 }
 
 // =============================================================================

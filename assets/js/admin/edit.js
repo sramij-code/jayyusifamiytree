@@ -103,17 +103,27 @@ function saveRelative() {
     }
 
   } else if (rel.kind === 'partner') {
-    // Fill an empty second slot if there is one: that instantly re-hangs this
-    // man's existing children from the couple's midpoint. Otherwise he already
-    // has a wife, so this is a second marriage and gets its own partnership.
-    const openPP = state.partnerships.find(p =>
-      (p.partners[0] === targetId && p.partners[1] === null) ||
-      (p.partners[1] === targetId && p.partners[0] === null));
-    if (openPP) {
-      openPP.partners[openPP.partners.indexOf(null)] = newId;
-    } else {
-      state.partnerships.push({ id: state.generatePPId(), partners: [targetId, newId], children: [] });
-    }
+    // A marriage is always its own partnership, never a fill of an existing
+    // empty slot.
+    //
+    // Filling the slot looked tidier — it re-hung the man's children from the
+    // couple's midpoint — but it declared the new wife the mother of every
+    // child he already had. All 659 partnerships imported from the 1999 source
+    // are [father, null], so that fired on the FIRST wife added to anyone.
+    // Two people adding a wife to the same man then produced different trees
+    // depending on which write landed first: on p11 (16 sons) whichever wife
+    // was saved first became mother of all 16, and reverting her silently
+    // rewrote the other person's edit.
+    //
+    // Adding a partnership instead is commutative — any order gives the same
+    // tree — and reverting one drops a childless partnership that orphans
+    // nothing. The cost is that children stay hung off the father rather than
+    // the midpoint, which is a deliberate departure from the midpoint rule:
+    // the source records no mothers, so the midpoint was asserting a fact we
+    // do not have.
+    state.partnerships.push({
+      id: state.generatePPId(), partners: [targetId, newId], children: [],
+    });
 
   } else if (rel.kind === 'parent') {
     state.partnerships.push({ id: state.generatePPId(), partners: [newId, null], children: [targetId] });

@@ -303,9 +303,10 @@ function expandOneLevel(personId) {
   for (const id of frontier) {
     state.expandedNodes.add(id);
     for (const c of (idx[id] || [])) state.visibleNodes.add(c);
-    // Keep a revealed child's mother on screen with him.
-    const couple = coupleMap()[id];
-    if (couple) state.visibleNodes.add(couple.other);
+    // Keep a revealed child's mother on screen with him. All wives, not just
+    // one: which of them a given child belongs to is not recorded, so hiding
+    // some would be an arbitrary choice.
+    for (const couple of partnersOf(id)) state.visibleNodes.add(couple.other);
   }
 
   return state.visibleNodes.size - before;
@@ -327,9 +328,11 @@ function collapseSubtree(personId) {
       seen.add(c);
       state.expandedNodes.delete(c);
       state.visibleNodes.delete(c);
-      const couple = coupleMap()[c];
-      // A wife is only on screen because of her husband, so she goes too.
-      if (couple && !seen.has(couple.other)) state.visibleNodes.delete(couple.other);
+      // A wife is only on screen because of her husband, so she goes too — and
+      // every wife, or the earlier ones are left stranded with no husband.
+      for (const couple of partnersOf(c)) {
+        if (!seen.has(couple.other)) state.visibleNodes.delete(couple.other);
+      }
       stack.push(c);
     }
   }

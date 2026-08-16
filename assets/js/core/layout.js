@@ -281,7 +281,6 @@ function getVisibleChildrenXs(personId, layout) {
 }
 
 function resolveOverlaps(ids, layout) {
-  const cm = coupleMap();
   const sorted = ids
     .filter(id => layout[id])
     .sort((a, b) => layout[a].x - layout[b].x);
@@ -290,8 +289,9 @@ function resolveOverlaps(ids, layout) {
 
   // Spouses are allowed to sit closer than unrelated neighbours; without this
   // the couple gets pushed to the full 258px and stops reading as a pair.
-  const minGap = (a, b) =>
-    (cm[a] && cm[a].other === b) ? COUPLE_GAP : NODE_W + H_GAP;
+  // areSpouses is symmetric, so co-wives of one husband all keep couple
+  // spacing and the marriage cluster stays tight instead of scattering.
+  const minGap = (a, b) => areSpouses(a, b) ? COUPLE_GAP : NODE_W + H_GAP;
 
   // Forward sweep: push each node right if too close to its left neighbour
   for (let i = 1; i < sorted.length; i++) {

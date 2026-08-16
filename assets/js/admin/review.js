@@ -214,8 +214,11 @@ var FTReview = window.FTReview = (function () {
           fromProposal: row.id,
         }));
       }
-      // The preview snapshot would otherwise let ⌘Z silently un-approve.
-      FTChangeLog.clearUndo();
+      // Drop only the preview snapshot, so ⌘Z cannot silently un-approve. Not
+      // clearUndo — that would also throw away snapshots from the admin's own
+      // edits earlier in the session, which have nothing to do with this
+      // proposal.
+      FTChangeLog.dropUndo();
       return true;
     },
 

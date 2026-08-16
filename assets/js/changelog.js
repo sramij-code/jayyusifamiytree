@@ -236,5 +236,13 @@ var FTChangeLog = window.FTChangeLog = (function () {
     },
 
     clearUndo: function () { this._undo = []; },
+
+    // Discard the most recent snapshot WITHOUT restoring it: the change it was
+    // protecting is being kept deliberately.
+    //
+    // clearUndo would do the job for the top entry but throws away every older
+    // one too, so approving a proposal used to wipe the admin's undo history for
+    // their own unrelated edits made earlier in the session.
+    dropUndo: function () { this._undo.pop(); },
   };
 })();

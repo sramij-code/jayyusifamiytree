@@ -163,6 +163,12 @@ function publishTheme() {
 // Kept as the offline path: it works with no token and no network, so it is
 // also the fallback if a commit fails and you need the work off this device.
 function publishFamily() {
+  // Same hazard as commitFamily: the export serialises state, so a live
+  // preview would be baked into the downloaded file.
+  if (previewBlockingPublish()) {
+    setFamilyStatus('✕ اعتمد أو ألغِ المعاينة أولاً · a proposal preview is live', 'dirty');
+    return;
+  }
   const out = {
     people: state.people,
     partnerships: state.partnerships,
@@ -264,9 +270,27 @@ function setFamilyStatus(text, kind) {
   el.className = kind || '';
 }
 
+// A live proposal preview must never be published.
+//
+// Preview really mutates state — that is how you see it laid out — but records
+// nothing in the changelog until you approve. Both publish paths serialise
+// state.people/state.partnerships wholesale, so with any OTHER edit pending
+// (which is what enables the button) a commit would carry the previewed
+// proposal into data/family.js without it ever having been approved, and
+// without appearing in the changelog that is supposed to describe the commit.
+function previewBlockingPublish() {
+  if (typeof FTReview === 'undefined') return false;
+  return !!FTReview.previewing();
+}
+
 async function commitFamily() {
   if (!FTGitHub.hasToken()) { openTokenModal(); return; }
   if (FTChangeLog.count() === 0) return;
+
+  if (previewBlockingPublish()) {
+    setFamilyStatus('✕ اعتمد أو ألغِ المعاينة أولاً · a proposal preview is live', 'dirty');
+    return;
+  }
 
   const btn = document.getElementById('btn-commit-family');
   if (btn) btn.disabled = true;

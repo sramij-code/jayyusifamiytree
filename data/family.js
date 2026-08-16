@@ -10476,9 +10476,15 @@ window.FT_FAMILY = {
       "gender": "male",
       "generation": 10
     },
-    "p4ogl6zg6": {
-      "id": "p4ogl6zg6",
-      "name": "Ola3",
+    "p94z7ewpo": {
+      "id": "p94z7ewpo",
+      "name": "Ola5",
+      "gender": "female",
+      "generation": 1
+    },
+    "pgr9q9h1d": {
+      "id": "pgr9q9h1d",
+      "name": "Ola4",
       "gender": "female",
       "generation": 1
     }
@@ -18161,10 +18167,18 @@ window.FT_FAMILY = {
       ]
     },
     {
-      "id": "pptuxa2kvk",
+      "id": "ppz1f0wodo",
       "partners": [
         "p2",
-        "p4ogl6zg6"
+        "p94z7ewpo"
+      ],
+      "children": []
+    },
+    {
+      "id": "ppvryv6nzf",
+      "partners": [
+        "p2",
+        "pgr9q9h1d"
       ],
       "children": []
     }

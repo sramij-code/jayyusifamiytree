@@ -13,6 +13,7 @@ function initEventListeners() {
   document.getElementById('btn-discard-family').addEventListener('click', discardFamilyDraft);
   document.getElementById('btn-reset-draft').addEventListener('click', () => FTAdminDraft.reset());
   initTokenModal();
+  initReviewUI();
 
   // ⌘Z / Ctrl+Z, admin-only. Skipped while typing, where the browser's own
   // undo belongs to the text field.

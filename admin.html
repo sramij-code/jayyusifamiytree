@@ -196,7 +196,20 @@
     <button id="btn-publish-family" class="pub-btn ghost">EXPORT &darr;</button>
     <button id="btn-discard-family" class="pub-btn ghost" disabled>DISCARD EDITS</button>
     <button id="btn-reset-draft" class="pub-btn ghost">DISCARD THEME</button>
+    <button id="btn-review" class="pub-btn">اقتراحات <span id="review-badge"></span></button>
     <span class="pub-note">tree edits commit straight to the repo &middot; theme downloads a file</span>
+  </div>
+
+  <!-- Proposals drawer. Reads the Supabase inbox; decisions are recorded in git,
+       never in the database — see review.js for why there is no status column. -->
+  <div id="review-drawer">
+    <div id="review-header">
+      <span id="review-title">اقتراحات العائلة</span>
+      <button id="review-refresh" class="review-btn ghost">تحديث</button>
+      <button id="review-close" class="review-btn ghost">✕</button>
+    </div>
+    <div id="review-status"></div>
+    <div id="review-list"></div>
   </div>
 
   <!-- GitHub token modal.
@@ -237,12 +250,15 @@
   <script src="assets/js/core/search.js"></script>
 
   <script src="assets/js/admin/auth.js"></script>
+  <script src="assets/js/supabase.js"></script>
   <script src="assets/js/changelog.js"></script>
   <script src="assets/js/admin/github.js"></script>
   <script src="assets/js/admin/publish.js"></script>
   <script src="assets/js/edit.js"></script>
   <script src="assets/js/admin/pickers.js"></script>
   <script src="assets/js/admin/presets.js"></script>
+  <script src="assets/js/admin/review.js"></script>
+  <script src="assets/js/admin/review-ui.js"></script>
   <script src="assets/js/admin/admin.js"></script>
 </body>
 </html>

@@ -214,8 +214,96 @@
 .pub-btn:hover:not(:disabled) { background: var(--node-bg); }
 .pub-btn:disabled { opacity: .4; cursor: not-allowed; }
 .pub-btn.ghost { color: var(--accent-dim); }
+.pub-btn.danger {
+  background: #7f1d1d; color: #fff; border-color: #7f1d1d; font-weight: 700;
+}
 .pub-note { color: var(--accent-dim); margin-left: auto; }
 body.admin-page #app { padding-top: 34px; }
+
+/* ---- GITHUB TOKEN MODAL ----
+   Same shell as the auth gate, wider because a PAT is ~93 characters. */
+#token-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--modal-overlay);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  z-index: 400;            /* above the publish bar (300) that opens it */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
+}
+#token-modal-overlay.visible { opacity: 1; pointer-events: all; }
+#token-modal {
+  background: var(--bg);
+  border: 1px solid var(--sidebar-border);
+  border-radius: 18px;
+  padding: 24px 28px;
+  width: 420px;
+  max-width: calc(100vw - 32px);
+  box-shadow: 8px 8px 20px var(--shadow-dark), -8px -8px 20px var(--shadow-light);
+  direction: ltr;
+  transform: scale(0.9) translateY(20px);
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+#token-modal-overlay.visible #token-modal { transform: scale(1) translateY(0); }
+#token-title {
+  font-family: var(--mono); font-size: 12px; letter-spacing: 1px;
+  color: var(--accent-deep);
+}
+#token-help {
+  font-family: var(--mono); font-size: 10px; line-height: 1.7;
+  color: var(--accent-dim); margin: 8px 0 4px;
+}
+#token-input {
+  width: 100%;
+  padding: 11px 14px;
+  border: 1.5px solid var(--sidebar-border);
+  border-radius: 10px;
+  font-family: var(--mono);
+  /* 16px: below it iOS Safari force-zooms the viewport on focus. */
+  font-size: 16px;
+  color: var(--accent-deep);
+  outline: none;
+  background: var(--node-bg);
+  margin: 10px 0 0;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+#token-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(109, 40, 217, 0.15);
+  background: #fff;
+}
+#token-error {
+  font-family: var(--mono); font-size: 10px; line-height: 1.6;
+  color: #991b1b; min-height: 16px; margin: 6px 0 2px;
+  word-break: break-word;
+}
+#token-actions { display: flex; gap: 8px; align-items: center; }
+#token-actions button {
+  padding: 9px 18px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  font-family: var(--mono);
+  font-size: 12px;
+  cursor: pointer;
+  min-height: 40px;
+  transition: background 0.2s ease;
+}
+#token-actions button:hover:not(:disabled) { background: var(--accent-mid); }
+#token-actions button:disabled { opacity: .5; cursor: not-allowed; }
+#token-actions button.ghost {
+  background: var(--bg);
+  color: var(--accent-dim);
+  border: 1px solid var(--sidebar-border);
+}
+#token-actions button.ghost:hover { background: var(--node-bg); color: var(--accent-deep); }
+#token-forget { margin-left: auto; }
 
 /* ---- AUTH GATE ----
    Lifted from the live site's inline CSS. My CSS split read the OTHER repo's

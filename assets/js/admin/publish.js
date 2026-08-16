@@ -70,13 +70,29 @@ function markFamilyDirty() {
 }
 
 // Throw away the draft and every unpublished edit, back to the committed
-// data/family.js. Confirmed because it is unrecoverable — the whole point of
-// the draft is that nothing else is holding this work.
+// data/family.js. Two clicks rather than window.confirm(), which Safari can
+// suppress — and a suppressed confirm returns false, so the button would look
+// dead exactly like CONNECT GITHUB did.
+let _discardArmed = false;
+
 function discardFamilyDraft() {
+  const btn = document.getElementById('btn-discard-family');
   const n = FTChangeLog.count();
-  if (n > 0 && !window.confirm(
-      'Discard ' + n + ' unpublished ' + (n === 1 ? 'edit' : 'edits') + '?\n\n' +
-      'This cannot be undone.')) return;
+  if (n === 0) return;
+
+  if (!_discardArmed) {
+    _discardArmed = true;
+    if (btn) {
+      btn.textContent = 'CONFIRM: LOSE ' + n + ' ↺';
+      btn.classList.add('danger');
+    }
+    // Disarm on its own, so a stray click cannot sit primed indefinitely.
+    setTimeout(() => {
+      _discardArmed = false;
+      if (btn) { btn.textContent = 'DISCARD EDITS'; btn.classList.remove('danger'); }
+    }, 4000);
+    return;
+  }
 
   FTChangeLog.clearDraft();
   FTChangeLog.clearLog();
@@ -141,6 +157,81 @@ function publishFamily() {
 // Commit straight to the repo.
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// GitHub token modal.
+//
+// Not window.prompt(): Safari suppresses native dialogs in several situations
+// and does it silently, so the button simply looked dead. A prompt also shows
+// a credential as plain text.
+// ---------------------------------------------------------------------------
+
+function initTokenModal() {
+  const overlay = document.getElementById('token-modal-overlay');
+  if (!overlay) return;
+
+  document.getElementById('token-submit').addEventListener('click', submitToken);
+  document.getElementById('token-cancel').addEventListener('click', closeTokenModal);
+  document.getElementById('token-forget').addEventListener('click', () => {
+    FTGitHub.clearToken();
+    closeTokenModal();
+    setFamilyStatus('○ github disconnected');
+    markFamilyDirty();
+  });
+
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) closeTokenModal(); });
+
+  const input = document.getElementById('token-input');
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter')  { e.preventDefault(); submitToken(); }
+    if (e.key === 'Escape') closeTokenModal();
+  });
+}
+
+function openTokenModal() {
+  const overlay = document.getElementById('token-modal-overlay');
+  if (!overlay) return;
+  document.getElementById('token-input').value = '';
+  document.getElementById('token-error').textContent = '';
+  document.getElementById('token-forget').style.display =
+    FTGitHub.hasToken() ? '' : 'none';
+  overlay.classList.add('visible');
+  setTimeout(() => document.getElementById('token-input').focus(), 200);
+}
+
+function closeTokenModal() {
+  const overlay = document.getElementById('token-modal-overlay');
+  if (overlay) overlay.classList.remove('visible');
+  // Never leave a credential sitting in the DOM.
+  const input = document.getElementById('token-input');
+  if (input) input.value = '';
+}
+
+async function submitToken() {
+  const input = document.getElementById('token-input');
+  const err = document.getElementById('token-error');
+  const btn = document.getElementById('token-submit');
+  const t = input.value.trim();
+  if (!t) { err.textContent = 'Paste a token, or press Disconnect.'; return; }
+
+  btn.disabled = true;
+  err.textContent = 'checking…';
+  FTGitHub.setToken(t);
+  try {
+    const repo = await FTGitHub.verify();
+    closeTokenModal();
+    // markFamilyDirty rewrites #family-state, so it has to run BEFORE the
+    // confirmation or it silently erases it and the connect looks like a no-op.
+    markFamilyDirty();
+    setFamilyStatus('✓ connected to ' + repo);
+  } catch (e) {
+    // Don't keep a credential that just proved it does not work.
+    FTGitHub.clearToken();
+    err.textContent = e.message;
+    markFamilyDirty();
+  }
+  btn.disabled = false;
+}
+
 function setFamilyStatus(text, kind) {
   const el = document.getElementById('family-state');
   if (!el) return;
@@ -148,38 +239,8 @@ function setFamilyStatus(text, kind) {
   el.className = kind || '';
 }
 
-async function connectGitHub() {
-  const current = FTGitHub.hasToken();
-  const msg = current
-    ? 'Replace the stored GitHub token?\n\nLeave blank and press OK to disconnect.'
-    : 'GitHub personal access token\n\n' +
-      'Fine-grained, Contents: read and write, this repository only.\n' +
-      'Stored in this browser only — never committed. Do not use a shared machine.';
-  const t = window.prompt(msg, '');
-  if (t === null) return;               // cancelled
-
-  if (!t.trim()) {
-    FTGitHub.clearToken();
-    setFamilyStatus('○ github disconnected');
-    markFamilyDirty();
-    return;
-  }
-
-  FTGitHub.setToken(t);
-  setFamilyStatus('checking token…');
-  try {
-    const repo = await FTGitHub.verify();
-    setFamilyStatus('✓ connected to ' + repo);
-  } catch (e) {
-    // Don't keep a credential that just proved it does not work.
-    FTGitHub.clearToken();
-    setFamilyStatus('✕ ' + e.message, 'dirty');
-  }
-  markFamilyDirty();
-}
-
 async function commitFamily() {
-  if (!FTGitHub.hasToken()) { await connectGitHub(); return; }
+  if (!FTGitHub.hasToken()) { openTokenModal(); return; }
   if (FTChangeLog.count() === 0) return;
 
   const btn = document.getElementById('btn-commit-family');
@@ -191,11 +252,13 @@ async function commitFamily() {
     // drop the draft that was protecting it.
     FTChangeLog.clearLog();
     FTChangeLog.clearDraft();
+    // Before the status, which markFamilyDirty would otherwise overwrite.
+    markFamilyDirty();
     setFamilyStatus('✓ committed ' + r.count + ' to ' + r.branch + ' · ' + r.sha.slice(0, 7));
   } catch (e) {
     // The draft and log are deliberately untouched on failure — a network
     // blip must not cost the edits.
+    markFamilyDirty();
     setFamilyStatus('✕ ' + e.message, 'dirty');
   }
-  markFamilyDirty();
 }

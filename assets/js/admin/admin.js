@@ -11,6 +11,7 @@ function initEventListeners() {
   document.getElementById('btn-commit-family').addEventListener('click', commitFamily);
   document.getElementById('btn-discard-family').addEventListener('click', discardFamilyDraft);
   document.getElementById('btn-reset-draft').addEventListener('click', () => FTAdminDraft.reset());
+  initTokenModal();
 
   document.getElementById('tree-svg').addEventListener('click', () => hideNodePanel());
   document.getElementById('btn-close-panel').addEventListener('click', () => hideNodePanel());

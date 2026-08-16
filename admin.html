@@ -197,6 +197,29 @@
     <span class="pub-note">tree edits commit straight to the repo &middot; theme downloads a file</span>
   </div>
 
+  <!-- GitHub token modal.
+       An in-page dialog rather than window.prompt(): Safari suppresses native
+       dialogs in several situations (and silently, so the button looks dead),
+       and a credential typed into a prompt is displayed as plain text. This
+       uses type=password and never echoes the value back. -->
+  <div id="token-modal-overlay">
+    <div id="token-modal">
+      <div id="token-title">&gt; GITHUB_TOKEN</div>
+      <div id="token-help">
+        Fine-grained token · Contents: read and write · this repository only.<br>
+        Stored in this browser only. Never committed. Not on a shared machine.
+      </div>
+      <input type="password" id="token-input" placeholder="github_pat_…" autocomplete="off"
+             autocapitalize="off" autocorrect="off" spellcheck="false" />
+      <div id="token-error"></div>
+      <div id="token-actions">
+        <button id="token-submit">CONNECT</button>
+        <button id="token-cancel" class="ghost">CANCEL</button>
+        <button id="token-forget" class="ghost">DISCONNECT</button>
+      </div>
+    </div>
+  </div>
+
   <script src="assets/vendor/d3.min.js"></script>
   <script src="data/names.js"></script>
   <script src="data/family.js"></script>

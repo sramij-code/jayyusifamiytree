@@ -49,6 +49,20 @@ INFERRED_EDGES = [('p11', 'p1453', 'inferred_positional')]
 INDEGREE_TIEBREAK = {'p1651': 'p1554'}
 
 
+def id_key(x):
+    """Sort key that survives post-1999 ids.
+
+    The 1,746 imported ids are 'p' plus a number, and every sort here used
+    int(x[1:]). People added through admin.html now carry random ids like
+    'p3f9k2m7' — the old incremental counter handed the same id to two editors
+    — and int() raises ValueError on those. Numeric ids keep their original
+    order and sort first; random ids follow as text, so output stays
+    deterministic either way.
+    """
+    tail = x[1:]
+    return (0, int(tail), '') if tail.isdigit() else (1, 0, x)
+
+
 def load_current():
     """Parse data/family.js, which wraps the object as a window global."""
     raw = open(CURRENT, encoding='utf-8').read()
@@ -94,7 +108,7 @@ def main():
         return False
 
     skipped = []
-    for person in sorted(people_src, key=lambda i: int(i[1:])):
+    for person in sorted(people_src, key=id_key):
         if person in parent or person == current['root']:
             continue
         cand = app_parent.get(person)
@@ -127,7 +141,7 @@ def main():
     # 6. Emit, preserving the schema app.js expects: one partnership per parent,
     #    partners [father, null], relationships only in `partnerships`.
     people_out = {}
-    for i in sorted(keep, key=lambda x: int(x[1:])):
+    for i in sorted(keep, key=id_key):
         src = current['people'].get(i, {})
         people_out[i] = {
             'id': i,
@@ -140,11 +154,11 @@ def main():
     for c, p in parent.items():
         kids[p].append(c)
     partnerships = []
-    for n, p in enumerate(sorted(kids, key=lambda x: int(x[1:])), start=1):
+    for n, p in enumerate(sorted(kids, key=id_key), start=1):
         partnerships.append({
             'id': 'pp%d' % n,
             'partners': [p, None],
-            'children': sorted(kids[p], key=lambda x: int(x[1:])),
+            'children': sorted(kids[p], key=id_key),
         })
 
     out = {

@@ -22,10 +22,47 @@ const state = {
   highlightedNodeId: null,
   selectedPathIds: new Set(),
 
-  _idCounter: 100,
-  generateId()   { return "p"  + (++this._idCounter); },
-  generatePPId() { return "pp" + (++this._idCounter); },
+  // ---------------------------------------------------------------------------
+  // Ids for anyone added after the 1999 import.
+  //
+  // The old scheme was "p" + (++counter), seeded from the highest imported id.
+  // Every editor's browser therefore started from the same number and handed
+  // out the same ids: two people adding a relative both produced p1749, and
+  // whichever published second silently overwrote the other's person. Nothing
+  // detected it — the ids were equal, so it read as an edit, not a conflict.
+  //
+  // Random ids remove the shared counter entirely, which is what makes more
+  // than one editor possible at all. 8 base36 characters is ~41 bits: adding a
+  // thousand people carries a collision chance around one in five million,
+  // and two editors working simultaneously cannot collide by construction.
+  //
+  // Kept deliberately short because render.js prints the raw id on every node
+  // in a 178px box — a 26-character ULID would overflow it.
+  //
+  // The `p`/`pp` prefixes stay so existing code can still tell a person id from
+  // a partnership id at a glance.
+  // ---------------------------------------------------------------------------
+  _idCounter: 100,          // vestigial: still set by initState, no longer used
+                            // to mint ids. Left in place because undo snapshots
+                            // record it.
+  generateId()   { return "p"  + randomIdSuffix(); },
+  generatePPId() { return "pp" + randomIdSuffix(); },
 };
+
+function randomIdSuffix() {
+  const ALPHABET = '0123456789abcdefghijklmnopqrstuvwxyz';
+  const bytes = new Uint8Array(8);
+  // getRandomValues, unlike crypto.subtle, works outside a secure context, so
+  // this keeps working over file://.
+  if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+    crypto.getRandomValues(bytes);
+  } else {
+    for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
+  }
+  let out = '';
+  for (let i = 0; i < bytes.length; i++) out += ALPHABET[bytes[i] % 36];
+  return out;
+}
 
 function initState() {
   state.people = {};

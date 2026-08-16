@@ -115,6 +115,30 @@ function visiblePartnerOf(id, layout) {
   return null;
 }
 
+// Every visible spouse, in marriage order. Layout needs all of them: with two
+// wives, positioning only the first leaves the second wherever the initial
+// pass dropped her, which can be between her husband and his other wife.
+function visiblePartnersOf(id, layout) {
+  return partnersOf(id).filter(c => state.visibleNodes.has(c.other) && layout[c.other]);
+}
+
+// True when id is partners[0] in any marriage — the member layout positions the
+// group from.
+function isHusbandOf(id) {
+  for (const c of partnersOf(id)) if (c.first) return true;
+  return false;
+}
+
+// Same marriage group: married to each other, OR co-wives of one husband.
+// resolveOverlaps needs the second case, or two wives get pushed to the full
+// stranger gap and the cluster stops reading as one family.
+function inSameMarriageGroup(a, b) {
+  if (areSpouses(a, b)) return true;
+  const pa = partnersOf(a), pb = partnersOf(b);
+  for (const x of pa) for (const y of pb) if (x.other === y.other) return true;
+  return false;
+}
+
 // =============================================================================
 // 7. NODE PANEL
 // =============================================================================

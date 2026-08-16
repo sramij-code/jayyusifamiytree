@@ -9,9 +9,20 @@ function initEventListeners() {
   document.getElementById('btn-publish').addEventListener('click', publishTheme);
   document.getElementById('btn-publish-family').addEventListener('click', publishFamily);
   document.getElementById('btn-commit-family').addEventListener('click', commitFamily);
+  document.getElementById('btn-undo').addEventListener('click', undoEdit);
   document.getElementById('btn-discard-family').addEventListener('click', discardFamilyDraft);
   document.getElementById('btn-reset-draft').addEventListener('click', () => FTAdminDraft.reset());
   initTokenModal();
+
+  // ⌘Z / Ctrl+Z, admin-only. Skipped while typing, where the browser's own
+  // undo belongs to the text field.
+  document.addEventListener('keydown', (e) => {
+    if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 'z') return;
+    const t = e.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+    e.preventDefault();
+    undoEdit();
+  });
 
   document.getElementById('tree-svg').addEventListener('click', () => hideNodePanel());
   document.getElementById('btn-close-panel').addEventListener('click', () => hideNodePanel());

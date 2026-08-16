@@ -67,6 +67,30 @@ function markFamilyDirty() {
 
   const discardBtn = document.getElementById('btn-discard-family');
   if (discardBtn) discardBtn.disabled = n === 0;
+
+  const undoBtn = document.getElementById('btn-undo');
+  if (undoBtn) {
+    const can = FTChangeLog.canUndo();
+    undoBtn.disabled = !can;
+    undoBtn.title = can
+      ? 'Undo: ' + FTChangeLog.undoLabel() + ' · ⌘Z · ' + FTChangeLog.undoDepth() + ' step(s) available'
+      : 'Nothing to undo this session';
+  }
+}
+
+// Session undo. Restores the snapshot taken before the last edit and drops the
+// changelog entries that edit added.
+function undoEdit() {
+  if (!FTChangeLog.undo()) return;
+  render(true);
+  renderSearchResults(
+    document.getElementById('search-input').value,
+    document.getElementById('search-results'));
+  markFamilyDirty();
+  setFamilyStatus(FTChangeLog.count() === 0
+    ? '○ TREE IN SYNC · undone'
+    : '● ' + FTChangeLog.count() + ' unpublished · undone',
+    FTChangeLog.count() === 0 ? '' : 'dirty');
 }
 
 // Throw away the draft and every unpublished edit, back to the committed

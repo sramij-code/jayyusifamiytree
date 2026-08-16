@@ -154,5 +154,73 @@ var FTChangeLog = window.FTChangeLog = (function () {
       const body = log.map(e => '  ' + e.describe).join('\n');
       return subject + '\n\n' + body + '\n\nPublished from admin.html';
     },
+    // ---- undo -----------------------------------------------------------
+
+    // Snapshot-based, not inverse operations.
+    //
+    // Reversing an edit by hand means answering what the inverse of each op is
+    // and how inverses compose when edits touch the same person — the problem
+    // that made add_wife's slot-filling unrevertable. A snapshot has no such
+    // question: restore the bytes and the tree is exactly what it was.
+    //
+    // Memory only, capped, and deliberately not persisted: this is session
+    // undo. A reload starts from the saved draft with an empty stack, which is
+    // honest about what it can and cannot take back.
+    _undo: [],
+    UNDO_LIMIT: 30,
+
+    // Call BEFORE mutating.
+    pushUndo: function (label) {
+      this._undo.push({
+        label: label || 'edit',
+        people: JSON.parse(JSON.stringify(state.people)),
+        partnerships: JSON.parse(JSON.stringify(state.partnerships)),
+        logLength: this.entries().length,
+        counter: state._idCounter,
+      });
+      if (this._undo.length > this.UNDO_LIMIT) this._undo.shift();
+    },
+
+    canUndo: function () { return this._undo.length > 0; },
+    undoDepth: function () { return this._undo.length; },
+    undoLabel: function () {
+      const top = this._undo[this._undo.length - 1];
+      return top ? top.label : '';
+    },
+
+    undo: function () {
+      const snap = this._undo.pop();
+      if (!snap) return false;
+
+      state.people = snap.people;
+      state.partnerships = snap.partnerships;
+      // Restore the counter too, or ids already handed out get reissued.
+      state._idCounter = snap.counter;
+
+      // Truncate the log to its length at snapshot time. Truncate rather than
+      // pop-one: a single action can record more than one entry.
+      const log = this.entries().slice(0, snap.logLength);
+      write(LOG_KEY, log);
+
+      invalidateParentIndex();
+      invalidateCoupleMap();
+      invalidateChildIndex();
+
+      // An undone person may still be in visibleNodes.
+      for (const id of Array.from(state.visibleNodes)) {
+        if (!state.people[id]) state.visibleNodes.delete(id);
+      }
+      for (const id of Array.from(state.expandedNodes)) {
+        if (!state.people[id]) state.expandedNodes.delete(id);
+      }
+      if (state.selectedNodeId && !state.people[state.selectedNodeId]) {
+        state.selectedNodeId = null;
+      }
+
+      if (log.length === 0) this.clearDraft(); else this.saveDraft();
+      return true;
+    },
+
+    clearUndo: function () { this._undo = []; },
   };
 })();

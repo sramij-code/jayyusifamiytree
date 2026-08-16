@@ -90,6 +90,9 @@ function saveRelative() {
   const newId  = state.generateId();
   const newGen = targetPerson.generation + rel.dGen;
 
+  // Before the first mutation, so undo restores the exact prior tree.
+  FTChangeLog.pushUndo('add ' + name);
+
   state.people[newId] = { id: newId, name, gender: rel.gender, generation: newGen };
 
   if (rel.kind === 'child') {
@@ -201,6 +204,7 @@ function startEditName(personId) {
     // by clicking away. Only an actual change is worth a changelog line.
     if (newName && newName !== person.name) {
       const oldName = person.name;
+      FTChangeLog.pushUndo('rename ' + oldName);
       state.people[personId].name = newName;
       FTChangeLog.record({
         op: 'rename',

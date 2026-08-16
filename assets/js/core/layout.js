@@ -98,24 +98,44 @@ function computeLayout() {
       const gen = sortedGens[gi];
       for (const id of genGroups[gen]) {
         if (!layout[id]) continue;
-        const couple = visiblePartnerOf(id, layout);
-        if (couple) {
-          if (!couple.first) continue;   // handle each couple once
-          const childXs = getVisibleChildrenXs(id, layout)
-            .concat(getVisibleChildrenXs(couple.other, layout));
+
+        const wives = visiblePartnersOf(id, layout);
+        if (wives.length > 0) {
+          // Only the husband (partners[0], `first`) drives placement, so the
+          // group is positioned once rather than once per member.
+          if (!wives[0].first) continue;
+
+          let childXs = getVisibleChildrenXs(id, layout);
+          for (const w of wives) childXs = childXs.concat(getVisibleChildrenXs(w.other, layout));
+
           if (childXs.length > 0) {
+            // The husband sits in the middle of his marriages (see
+            // tightenMarriages), so centring HIM centres the block.
             const mid = (Math.min(...childXs) + Math.max(...childXs)) / 2;
-            layout[id].x = mid - COUPLE_GAP / 2;
-            layout[couple.other].x = mid + COUPLE_GAP / 2;
+            layout[id].x = mid;
           }
-          continue;
+          continue;   // wives are seated by tightenMarriages
         }
+
+        // A wife whose husband is off screen, or anyone unmarried.
+        if (partnersOf(id).length > 0 && !isHusbandOf(id)) continue;
+
         const childXs = getVisibleChildrenXs(id, layout);
         if (childXs.length > 0) {
           layout[id].x = (Math.min(...childXs) + Math.max(...childXs)) / 2;
         }
       }
     }
+
+    // Seat every visible wife beside her husband, on EVERY row.
+    //
+    // Two reasons this cannot live in the loop above. That loop skips the
+    // deepest generation (it centres parents over children, and the last row
+    // has none), so a marriage there was never positioned at all — which is
+    // exactly the newly-added-wife case. And resolveOverlaps only enforces a
+    // MINIMUM gap; it never pulls nodes closer, so a wife left adrift by the
+    // initial pass stayed adrift.
+    tightenMarriages(genGroups, sortedGens, layout);
     // Top-down: enforce minimum spacing on every row
     for (const gen of sortedGens) {
       resolveOverlaps(genGroups[gen], layout);
@@ -280,6 +300,30 @@ function getVisibleChildrenXs(personId, layout) {
   return xs;
 }
 
+// Seat each visible wife next to her husband, alternating right then left so
+// he sits in the middle of his marriages.
+//
+// Stacking every wife on one side keeps the husband's bar to the far wife
+// running straight through the nearer one, which is what made a second wife
+// read as married to the first. Alternating means one or two wives — the
+// realistic case — produce no crossing at all. Three or more still cross, and
+// there is no single-row layout that avoids it.
+//
+// Runs on every row including the deepest, which the centering pass skips.
+function tightenMarriages(genGroups, sortedGens, layout) {
+  for (const gen of sortedGens) {
+    for (const id of genGroups[gen]) {
+      if (!layout[id] || !isHusbandOf(id)) continue;
+      const wives = visiblePartnersOf(id, layout);
+      wives.forEach((w, k) => {
+        const side = (k % 2 === 0) ? 1 : -1;         // right, left, right, …
+        const rank = Math.floor(k / 2) + 1;          // how far out on that side
+        layout[w.other].x = layout[id].x + side * COUPLE_GAP * rank;
+      });
+    }
+  }
+}
+
 function resolveOverlaps(ids, layout) {
   const sorted = ids
     .filter(id => layout[id])
@@ -289,9 +333,9 @@ function resolveOverlaps(ids, layout) {
 
   // Spouses are allowed to sit closer than unrelated neighbours; without this
   // the couple gets pushed to the full 258px and stops reading as a pair.
-  // areSpouses is symmetric, so co-wives of one husband all keep couple
-  // spacing and the marriage cluster stays tight instead of scattering.
-  const minGap = (a, b) => areSpouses(a, b) ? COUPLE_GAP : NODE_W + H_GAP;
+  // Co-wives count too, or a husband's two wives get stranger spacing and his
+  // marriage bar to the far one crosses the near one's node.
+  const minGap = (a, b) => inSameMarriageGroup(a, b) ? COUPLE_GAP : NODE_W + H_GAP;
 
   // Forward sweep: push each node right if too close to its left neighbour
   for (let i = 1; i < sorted.length; i++) {

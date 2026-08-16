@@ -104,12 +104,36 @@ function buildLinkPaths(layout) {
         onPath,
       });
 
+      // The ancestor path travels along only PART of the sibling bus: from the
+      // parent's stem across to the one child it descends through. Highlighting
+      // the whole bus lit up the run out to every other sibling as well, so the
+      // trail appeared to continue into branches it never enters.
+      //
+      // Drawn as two paths — the plain full bus, then a highlighted overlay of
+      // just the traversed span. Splitting into three segments instead would
+      // leave visible seams where the round line caps meet.
+      const onPathChild = onPath
+        ? visibleChildren.find(cId => state.selectedPathIds.has(cId))
+        : undefined;
+
       paths.push({
         id: `bus-${pp.id}`,
         path: `M ${busLeft} ${dropY} H ${busRight}`,
         color,
-        onPath,
+        onPath: onPath && onPathChild === undefined,
       });
+
+      if (onPathChild !== undefined) {
+        const px = layout[onPathChild].x;
+        // Pushed after the full bus so it paints on top: paths render in array
+        // order.
+        paths.push({
+          id: `bus-onpath-${pp.id}`,
+          path: `M ${Math.min(midX, px)} ${dropY} H ${Math.max(midX, px)}`,
+          color,
+          onPath: true,
+        });
+      }
 
       for (const cId of visibleChildren) {
         const cx = layout[cId].x;

@@ -19,7 +19,11 @@ body.propose-mode .pb-note { display: inline !important; }
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 5px 14px calc(5px + env(safe-area-inset-top));
+  /* Inset on the TOP, not the bottom. It was on the bottom, which made the bar
+     taller without moving its contents out from under a notch — the one thing
+     the inset exists to do. Total height is 42px + inset either way, which is
+     what #app's padding below is matched to. */
+  padding: calc(5px + env(safe-area-inset-top)) 14px 5px;
   background: var(--sidebar-bg);
   border-bottom: 1px solid var(--sidebar-border);
   font-family: var(--mono);
@@ -31,9 +35,16 @@ body.propose-mode .pb-note { display: inline !important; }
   row-gap: 6px;
 }
 
-/* The tree sits below the bar. Only shifted in propose mode, so the default
-   view keeps its full height. */
-body.propose-mode #app { padding-top: 40px; }
+/* The tree sits below the bar.
+   Padded ALWAYS, not just in propose mode: the toggle button is not
+   .propose-only, so the bar is on screen from the first paint. Padding only
+   under body.propose-mode left the bar overlaying the top of the canvas in the
+   default read-only view, hiding #btn-reset-view at top:16px behind it.
+
+   42px = the toggle's 32px min-height plus the bar's 5px top and bottom
+   padding. The bar keeps one row in both modes on a wide screen, so one value
+   covers both. */
+#app { padding-top: calc(42px + env(safe-area-inset-top)); }
 
 #propose-toggle {
   font-family: var(--arabic);
@@ -277,8 +288,17 @@ body.propose-mode #propose-toggle {
 /* ---- MOBILE ---- */
 @media (max-width: 640px) {
   #propose-bar { font-size: 11px; gap: 8px; }
-  body.propose-mode #app { padding-top: 76px; }
+  /* Read-only: just the toggle, still one row. */
+  #app { padding-top: calc(46px + env(safe-area-inset-top)); }
+  /* Propose mode adds the identity chip, status and two buttons, which wrap to
+     a second row at this width. */
+  body.propose-mode #app { padding-top: calc(84px + env(safe-area-inset-top)); }
   .pb-note { display: none !important; }
+  /* base.css adds env(safe-area-inset-top) to this button's own `top`, which was
+     right when nothing above it reserved space. #app's padding now includes that
+     inset, and the button is absolute inside the padded container — so keeping it
+     would push the button down by the inset twice. */
+  #btn-reset-view { top: 12px; }
   #who-modal, #send-modal {
     width: 100%;
     max-width: 100%;

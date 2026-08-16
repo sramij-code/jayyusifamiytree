@@ -10476,9 +10476,9 @@ window.FT_FAMILY = {
       "gender": "male",
       "generation": 10
     },
-    "p94z7ewpo": {
-      "id": "p94z7ewpo",
-      "name": "Ola5",
+    "p4ogl6zg6": {
+      "id": "p4ogl6zg6",
+      "name": "Ola3",
       "gender": "female",
       "generation": 1
     },
@@ -18167,15 +18167,15 @@ window.FT_FAMILY = {
       ]
     },
     {
-      "id": "ppz1f0wodo",
+      "id": "pptuxa2kvk",
       "partners": [
         "p2",
-        "p94z7ewpo"
+        "p4ogl6zg6"
       ],
       "children": []
     },
     {
-      "id": "ppvryv6nzf",
+      "id": "ppgsxvalwn",
       "partners": [
         "p2",
         "pgr9q9h1d"

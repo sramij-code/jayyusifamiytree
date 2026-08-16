@@ -29,6 +29,25 @@ var FTPropose = window.FTPropose = (function () {
 
   function configured() { return !!(SUPABASE_URL && SUPABASE_ANON_KEY); }
 
+  // Supabase has two key formats and they want different headers.
+  //
+  // The legacy `anon` key is a JWT (starts 'eyJ') whose payload carries the
+  // role, and the convention is to send it as BOTH apikey and a Bearer token.
+  // The newer publishable key ('sb_publishable_…') is an opaque string, not a
+  // JWT — the gateway resolves it to the anon role — so presenting it as a
+  // Bearer token asks the server to parse it as one, which it is not.
+  //
+  // Detect rather than pick, so either key works and switching between them
+  // needs no code change. Supabase is steering people to publishable keys and
+  // offers a button to disable the legacy ones, so this will matter.
+  function apiHeaders() {
+    const h = { 'apikey': SUPABASE_ANON_KEY };
+    if (/^eyJ/.test(SUPABASE_ANON_KEY)) {
+      h['Authorization'] = 'Bearer ' + SUPABASE_ANON_KEY;
+    }
+    return h;
+  }
+
   function read(key, fallback) {
     try {
       const raw = localStorage.getItem(key);
@@ -107,13 +126,11 @@ var FTPropose = window.FTPropose = (function () {
 
       const res = await fetch(SUPABASE_URL + '/rest/v1/proposals', {
         method: 'POST',
-        headers: {
-          'apikey': SUPABASE_ANON_KEY,
-          'Authorization': 'Bearer ' + SUPABASE_ANON_KEY,
+        headers: Object.assign(apiHeaders(), {
           'Content-Type': 'application/json',
           // Ask for the inserted row back, so we can record its id.
           'Prefer': 'return=representation',
-        },
+        }),
         body: JSON.stringify(body),
       });
 

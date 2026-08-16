@@ -21,11 +21,20 @@ var FTPropose = window.FTPropose = (function () {
   const MODE_KEY = 'ftProposeMode';
   const SENT_KEY = 'ftProposalsSent';   // ids we posted, so we can report status
 
-  // Set these once the Supabase table exists. Until then the UI works end to
-  // end and submitting reports that it is not configured, which keeps the whole
-  // flow testable with no backend.
-  const SUPABASE_URL = '';              // e.g. https://xxxx.supabase.co
-  const SUPABASE_ANON_KEY = '';
+  // Supabase project. The publishable key is MEANT to be public — it ships in
+  // this file to every visitor — and its power is bounded entirely by the RLS
+  // policies in tools/proposals.sql: insert and select on one table, nothing
+  // else. The secret/service_role key bypasses RLS and must never appear here.
+  const SUPABASE_URL = 'https://swwukbafkibgazlzshkr.supabase.co';
+  const SUPABASE_ANON_KEY = 'sb_publishable_aqFdEvUtLRPlCCnEgaSp6A_1G6r80hE';
+
+  // The dashboard shows the REST endpoint (…/rest/v1/) rather than the bare
+  // project URL, and this code appends the path itself. Normalise instead of
+  // relying on which one got pasted — otherwise the mistake surfaces as a
+  // baffling 404 on /rest/v1/rest/v1/proposals.
+  function apiBase() {
+    return String(SUPABASE_URL).replace(/\/+$/, '').replace(/\/rest\/v1$/, '');
+  }
 
   function configured() { return !!(SUPABASE_URL && SUPABASE_ANON_KEY); }
 
@@ -124,7 +133,7 @@ var FTPropose = window.FTPropose = (function () {
         note: String(note || '').trim() || null,
       };
 
-      const res = await fetch(SUPABASE_URL + '/rest/v1/proposals', {
+      const res = await fetch(apiBase() + '/rest/v1/proposals', {
         method: 'POST',
         headers: Object.assign(apiHeaders(), {
           'Content-Type': 'application/json',

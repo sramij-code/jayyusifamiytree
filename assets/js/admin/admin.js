@@ -40,6 +40,9 @@ function initEventListeners() {
   document.getElementById('btn-add-relative').addEventListener('click', () => {
     if (state.selectedNodeId && !isTerminal(state.selectedNodeId)) openModal(state.selectedNodeId);
   });
+  document.getElementById('btn-delete-person').addEventListener('click', () => {
+    if (state.selectedNodeId) requestDeletePerson(state.selectedNodeId);
+  });
 }
 
 function init() {

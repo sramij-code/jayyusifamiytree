@@ -929,3 +929,11 @@ body.resizing #tree-svg { pointer-events: none; }
 #sidebar { overflow-x: hidden; }
 #sidebar-actions { flex-wrap: wrap; }
 .action-btn { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
+/* Armed state for the two-click delete confirm in the node panel. */
+.panel-btn.danger {
+      background: #7f1d1d !important;
+      color: #fff !important;
+      border-color: #7f1d1d !important;
+      font-weight: 700;
+    }

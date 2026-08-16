@@ -91,6 +91,13 @@ function initProposeUI() {
     });
   }
 
+  const del = document.getElementById('btn-delete-person');
+  if (del) {
+    del.addEventListener('click', () => {
+      if (state.selectedNodeId) requestDeletePerson(state.selectedNodeId);
+    });
+  }
+
   initWhoModal();
   initSendModal();
 }

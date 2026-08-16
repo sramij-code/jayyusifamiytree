@@ -175,8 +175,60 @@ function saveRelative() {
 }
 
 // =============================================================================
-// INLINE NAME EDITING
+// DELETE — leaves only
 // =============================================================================
+
+// Two-click confirm rather than window.confirm(), which Safari can suppress
+// silently — a suppressed confirm returns false, so the button would look dead
+// exactly as CONNECT GITHUB did.
+let _deleteArmedFor = null;
+let _deleteTimer = null;
+
+function resetDeleteArm() {
+  _deleteArmedFor = null;
+  if (_deleteTimer) { clearTimeout(_deleteTimer); _deleteTimer = null; }
+  const btn = document.getElementById('btn-delete-person');
+  if (btn) btn.classList.remove('danger');
+  // showNodePanel relabels it, so ask for a refresh rather than guessing here.
+  if (state.selectedNodeId) showNodePanel(state.selectedNodeId);
+}
+
+function requestDeletePerson(personId) {
+  if (typeof FTPropose !== 'undefined' && !FTPropose.isOn()) return;
+  if (!personId || !canDelete(personId)) return;
+
+  const btn = document.getElementById('btn-delete-person');
+
+  if (_deleteArmedFor !== personId) {
+    _deleteArmedFor = personId;
+    if (btn) { btn.textContent = 'تأكيد الحذف ✕'; btn.classList.add('danger'); }
+    if (_deleteTimer) clearTimeout(_deleteTimer);
+    _deleteTimer = setTimeout(resetDeleteArm, 4000);
+    return;
+  }
+
+  const person = state.people[personId];
+  const name = person.name;
+
+  FTChangeLog.pushUndo('delete ' + name);
+  if (!deletePerson(personId)) { resetDeleteArm(); return; }
+
+  FTChangeLog.record({
+    op: 'delete_person',
+    target: personId,
+    name: name,
+    describe: '− ' + name + ' (' + personId + ')',
+  });
+
+  _deleteArmedFor = null;
+  if (_deleteTimer) { clearTimeout(_deleteTimer); _deleteTimer = null; }
+
+  hideNodePanel();
+  render(true);
+  renderSearchResults(
+    document.getElementById('search-input').value,
+    document.getElementById('search-results'));
+}
 
 function startEditName(personId) {
   // render.js calls this on every name click, and index.html now loads this

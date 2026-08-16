@@ -233,6 +233,97 @@ function hasFather(personId) {
 }
 
 // -----------------------------------------------------------------------------
+// DELETION — leaves only.
+//
+// Restricted on purpose. Removing someone with descendants breaks three things
+// at once: their children lose a father, and links.js draws no connector for a
+// partnership with no visible partner, so they render as unconnected nodes
+// floating in mid-canvas; `generation` is stored rather than derived, so
+// removing a middle person leaves every descendant carrying a number that no
+// longer matches their depth, and layout.js places rows straight off that
+// number; and a deleted husband leaves his partnership as [null, wife], where
+// the next add_wife fills slot 0 and silently makes her the husband.
+//
+// A leaf has none of those consequences, and covers the actual need: a
+// duplicate, a typo, someone added by mistake.
+// -----------------------------------------------------------------------------
+
+// Why this person may not be deleted, or null if they may. Returns a reason
+// rather than a boolean so the UI can say what is wrong instead of just
+// disabling a button.
+function deleteBlockedReason(personId) {
+  const p = state.people[personId];
+  if (!p) return 'لا يوجد';
+  // state.root is never assigned by initState — only read, with a fallback, by
+  // the publish paths — so check the loaded data directly rather than trusting
+  // a field that is always undefined.
+  const rootId = (typeof familyData !== 'undefined' && familyData.root) || 'p1';
+  if (personId === rootId || personId === state.loggedInUser) {
+    return 'جذر الشجرة';                        // the tree hangs off this node
+  }
+  const kids = (childIndex()[personId] || []).filter(id => state.people[id]);
+  if (kids.length > 0) {
+    return 'له ' + kids.length + (kids.length === 1 ? ' ابن' : ' أبناء');
+  }
+  return null;
+}
+
+function canDelete(personId) {
+  return deleteBlockedReason(personId) === null;
+}
+
+// Remove a leaf and every reference to them. Returns false if blocked, so a
+// caller cannot mistake a refusal for success.
+function deletePerson(personId) {
+  if (!canDelete(personId)) return false;
+
+  delete state.people[personId];
+
+  // Drop them from partner slots and children lists, then discard any
+  // partnership that no longer records anything.
+  //
+  // A partnership is worth keeping if it has children (it records descent) or
+  // if both partners are present (it records a marriage). Deleting a wife
+  // leaves [husband, null] with no children, which records neither — and
+  // leaving [null, wife] behind is worse still, because the next add_wife
+  // fills slot 0 and silently makes her the husband.
+  //
+  // All 659 imported partnerships are [father, null] WITH children, so this
+  // never touches the 1999 data.
+  const kept = [];
+  for (const pp of state.partnerships) {
+    const partners = pp.partners.map(x => (x === personId ? null : x));
+    const children = pp.children.filter(c => c !== personId);
+    if (children.length === 0 && !(partners[0] && partners[1])) continue;
+    pp.partners = partners;
+    pp.children = children;
+    kept.push(pp);
+  }
+  state.partnerships = kept;
+
+  invalidateParentIndex();
+  invalidateCoupleMap();
+  invalidateChildIndex();
+
+  // View state can still be pointing at them.
+  state.visibleNodes.delete(personId);
+  state.expandedNodes.delete(personId);
+  state.selectedPathIds.delete(personId);
+  if (state.selectedNodeId === personId) state.selectedNodeId = null;
+  if (state.highlightedNodeId === personId) state.highlightedNodeId = null;
+
+  // And so can the saved home node, which would otherwise resolve to a person
+  // who no longer exists on the next load.
+  try {
+    if (localStorage.getItem('ftHomeNode') === personId) {
+      localStorage.removeItem('ftHomeNode');
+    }
+  } catch (e) { /* homeNodeId validates on read anyway */ }
+
+  return true;
+}
+
+// -----------------------------------------------------------------------------
 // Ancestor chains for disambiguating search hits.
 //
 // 165 people are named محمد, so a bare result list is useless. Each hit gets the

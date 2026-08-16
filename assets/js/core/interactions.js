@@ -248,6 +248,20 @@ function showNodePanel(personId) {
     ? 'لا يوجد أبناء لهذه العقدة'
     : `توسيع ${n} من الأبناء والأحفاد · ⌘-click على العقدة يفعل نفس الشيء`;
 
+  // Delete, allowed only for leaves. Says WHY it is refused rather than just
+  // greying out, because "له 3 أبناء" tells you what to do next and a disabled
+  // button does not. Absent from the DOM in read-only contexts, so guarded.
+  const del = document.getElementById('btn-delete-person');
+  if (del) {
+    const why = deleteBlockedReason(personId);
+    del.disabled = why !== null;
+    del.textContent = why === null ? 'حذف ✕' : why;
+    del.title = why === null
+      ? 'حذف هذا الشخص · only childless nodes can be removed'
+      : 'لا يمكن الحذف: ' + why;
+    del.classList.remove('danger');
+  }
+
   document.getElementById('node-panel').classList.add('visible');
 }
 

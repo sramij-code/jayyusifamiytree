@@ -20,6 +20,7 @@ function initEventListeners() {
   });
   document.getElementById('btn-expand-all').addEventListener('click', expandAll);
   document.getElementById('btn-collapse-all').addEventListener('click', collapseAll);
+  document.getElementById('btn-reset-view').addEventListener('click', resetView);
 }
 
 // Structural editing is admin-only; the renderer calls this on name click.

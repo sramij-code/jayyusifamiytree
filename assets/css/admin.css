@@ -356,6 +356,10 @@ body:not(.admin-mode) #app { padding-top: 0; }
   /* Give the wrapped bar room, or it covers the top of the canvas. */
   body.admin-mode #app { padding-top: 78px; }
 
+  /* #app's padding already moves the canvas down, so the reset button only
+     needs the safe-area inset when the bar is absent. */
+  body.admin-mode #btn-reset-view { top: 12px; }
+
   #btn-add-relative { flex: 1 1 auto; }
 
   #admin-password { font-size: 16px; min-height: 44px; }

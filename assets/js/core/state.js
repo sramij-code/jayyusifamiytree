@@ -49,7 +49,16 @@ function initState() {
   invalidateParentIndex();
   invalidateCoupleMap();
   invalidateChildIndex();
-  expandNode(state.loggedInUser, true);
+
+  // Open on the visitor's home node if they have set one. homeNodeId falls
+  // back to loggedInUser, so the indexes above are already correct for the
+  // default case; only a saved home changes what is on screen.
+  const home = typeof homeNodeId === 'function' ? homeNodeId() : state.loggedInUser;
+  if (home !== state.loggedInUser) {
+    state.visibleNodes = new Set([home]);
+    state.expandedNodes = new Set([home]);
+  }
+  expandNode(home, true);
 }
 
 let _coupleMap = null;

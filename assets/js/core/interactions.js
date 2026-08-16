@@ -95,6 +95,58 @@ function collapseAll() {
   setTimeout(() => centerOnNode(state.loggedInUser, true), 50);
 }
 
+// -----------------------------------------------------------------------------
+// HOME VIEW
+//
+// The node the tree opens on. Today that is always familyData.loggedInUser
+// (p1, the root), but it is read through one function so that "make this my
+// home" becomes a matter of persisting an id, not of rewriting callers.
+//
+// A saved home is validated on read: data/family.js is regenerated from the
+// Excel source, and a rebuild can retire an id. Falling back to the root is
+// better than opening on a node that no longer exists.
+// -----------------------------------------------------------------------------
+
+const HOME_KEY = 'ftHomeNode';
+
+function homeNodeId() {
+  try {
+    const saved = localStorage.getItem(HOME_KEY);
+    if (saved && state.people[saved]) return saved;
+  } catch (e) { /* private browsing, quota, etc. — fall through to the root */ }
+  return state.loggedInUser;
+}
+
+function setHomeNode(personId) {
+  if (!personId || !state.people[personId]) return false;
+  try {
+    if (personId === state.loggedInUser) localStorage.removeItem(HOME_KEY);
+    else localStorage.setItem(HOME_KEY, personId);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+// Back to the view the page opens on: the home node expanded one level, the
+// rest of the tree collapsed, framed to fit. Same end state as a reload, minus
+// the reload — and minus re-downloading 300KB of family data on mobile data.
+function resetView() {
+  const home = homeNodeId();
+  state.selectedNodeId = null;
+  state.highlightedNodeId = null;
+  state.selectedPathIds = new Set();
+  hideNodePanel();
+
+  state.expandedNodes.clear();
+  state.expandedNodes.add(home);
+  state.visibleNodes = new Set([home]);
+  expandNode(home, true);
+
+  render(true);
+  setTimeout(() => fitToNodes([...state.visibleNodes], true), 50);
+}
+
 function recomputeVisibleNodes() {
   const newVisible = new Set();
 

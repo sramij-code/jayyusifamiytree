@@ -2,3 +2,4 @@
 {"ts":"2026-08-16T20:56:35.667Z","by":"admin","op":"delete_person","target":"p1750","name":"Ola","describe":"− Ola (p1750)"}
 {"ts":"2026-08-16T20:57:05.396Z","by":"admin","op":"add_wife","target":"p2","targetName":"عساف","id":"pg4gj1nbp","name":"Ola2","gender":"female","generation":1,"describe":"+ Ola2 · زوجة of عساف (p2)"}
 {"ts":"2026-08-16T21:11:46.128Z","by":"admin","op":"delete_person","target":"pg4gj1nbp","name":"Ola2","describe":"− Ola2 (pg4gj1nbp)"}
+{"ts":"2026-08-16T21:19:47.694Z","by":"مقلد","id":"p4ogl6zg6","op":"add_wife","name":"Ola3","gender":"female","target":"p2","describe":"+ Ola3 · زوجة of عساف (p2)","generation":1,"targetName":"عساف","fromProposal":"71f54d80-f5ec-4117-bfb7-118919129959"}

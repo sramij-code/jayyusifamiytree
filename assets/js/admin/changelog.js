@@ -1,0 +1,158 @@
+/* ============================================================================
+   changelog.js — draft persistence and the per-edit audit trail.
+
+   Two jobs, both admin-only:
+
+   1. DRAFT. Structural edits used to live in one tab's memory and nothing
+      else. Closing the tab lost them, and there was no dirty indicator to
+      warn you. The theme layer already solved this (FTAdminDraft in
+      publish.js keeps a localStorage draft); family data never got the same
+      treatment. This mirrors it.
+
+   2. CHANGELOG. Every edit appends one line to a log that ships to the repo
+      as data/changes.jsonl.
+
+   The changelog is DESCRIPTIVE, NOT AUTHORITATIVE. data/family.js remains the
+   rendered truth; nothing ever replays this log to reconstruct the tree. That
+   distinction is the whole reason it is cheap: a replayed log has to answer
+   what happens when two edits conflict, whether ops are commutative, and how
+   revert composes — none of which apply to a log that is only ever read by
+   humans and the review UI.
+
+   Why it exists at all, given git: a commit records a whole publish. Add five
+   relatives, publish once, and git shows one diff of a 190KB file. It cannot
+   tell you the order the five happened in, and `git revert` is all-or-nothing.
+   Per-edit chronology has to be recorded as it happens or it is gone.
+============================================================================ */
+
+var FTChangeLog = window.FTChangeLog = (function () {
+  const DRAFT_KEY = 'ftFamilyDraft';   // the mutated tree, so a tab close is survivable
+  const LOG_KEY   = 'ftChangeLog';     // edits not yet committed to the repo
+  const WHO_KEY   = 'ftEditorName';    // who to credit in the log
+
+  function read(key, fallback) {
+    try {
+      const raw = localStorage.getItem(key);
+      return raw ? JSON.parse(raw) : fallback;
+    } catch (e) {
+      // Private browsing, quota, or a half-written value. Losing the draft is
+      // bad; throwing on boot and showing no tree at all is worse.
+      return fallback;
+    }
+  }
+
+  function write(key, value) {
+    try {
+      localStorage.setItem(key, JSON.stringify(value));
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  return {
+    // ---- draft ----------------------------------------------------------
+
+    // Full state, not a list of deltas to replay. For a short-lived
+    // single-author draft that is simpler and has no replay semantics to get
+    // wrong. The tradeoff: if data/family.js is regenerated from the Excel
+    // source while a draft is open, saving the draft overwrites the rebuild.
+    // hasDraft() is what the publish bar uses to make that visible.
+    saveDraft: function () {
+      return write(DRAFT_KEY, {
+        people: state.people,
+        partnerships: state.partnerships,
+        savedAt: new Date().toISOString(),
+      });
+    },
+
+    draft: function () { return read(DRAFT_KEY, null); },
+    hasDraft: function () { return this.draft() !== null; },
+
+    clearDraft: function () {
+      try { localStorage.removeItem(DRAFT_KEY); } catch (e) { /* nothing to undo */ }
+    },
+
+    // Replace the in-memory tree with the saved draft. Deliberately does NOT
+    // touch visibleNodes/expandedNodes — the caller decides what the viewport
+    // does, because on boot that is "open on the home node" and after a
+    // discard it is "leave the view alone".
+    applyDraft: function () {
+      const d = this.draft();
+      if (!d || !d.people || !d.partnerships) return false;
+      state.people = d.people;
+      state.partnerships = d.partnerships;
+
+      // initState set the id counter from the BASE data, so it sits below any
+      // id the draft already contains — the next generateId() would hand out
+      // an id a drafted person is already using. Advance past the draft.
+      let max = state._idCounter;
+      const num = id => parseInt(String(id).replace(/^\D+/, ''), 10) || 0;
+      for (const id of Object.keys(d.people)) max = Math.max(max, num(id));
+      for (const pp of d.partnerships) max = Math.max(max, num(pp.id));
+      state._idCounter = max;
+
+      invalidateParentIndex();
+      invalidateCoupleMap();
+      invalidateChildIndex();
+      return true;
+    },
+
+    // ---- editor identity -------------------------------------------------
+
+    // Git attributes every API commit to the token's owner, so commit metadata
+    // cannot say who actually made an edit. This field carries it instead,
+    // which is what matters once anyone but the owner can edit.
+    who: function () {
+      try { return localStorage.getItem(WHO_KEY) || 'admin'; } catch (e) { return 'admin'; }
+    },
+
+    setWho: function (name) {
+      try { localStorage.setItem(WHO_KEY, name); } catch (e) { /* stays 'admin' */ }
+    },
+
+    // ---- log -------------------------------------------------------------
+
+    entries: function () { return read(LOG_KEY, []); },
+    count: function () { return this.entries().length; },
+
+    // One line per edit. `describe` is precomputed here rather than derived at
+    // read time because it needs the tree as it was when the edit happened —
+    // a later edit can change a parent's name or move a node.
+    record: function (entry) {
+      const log = this.entries();
+      log.push(Object.assign({
+        ts: new Date().toISOString(),
+        by: this.who(),
+      }, entry));
+      write(LOG_KEY, log);
+      this.saveDraft();
+      if (typeof markFamilyDirty === 'function') markFamilyDirty();
+    },
+
+    clearLog: function () {
+      try { localStorage.removeItem(LOG_KEY); } catch (e) { /* nothing to undo */ }
+    },
+
+    // JSON Lines: one object per line, appended forever. Chosen over a JSON
+    // array so appending never rewrites earlier bytes and a truncated write
+    // costs one line instead of the whole file.
+    toJSONL: function () {
+      return this.entries().map(e => JSON.stringify(e)).join('\n');
+    },
+
+    // A commit message git log can actually be read from: subject line, then
+    // one bullet per edit in the order they happened.
+    commitMessage: function () {
+      const log = this.entries();
+      if (log.length === 0) return 'Update family data';
+
+      const subject = log.length === 1
+        ? log[0].describe
+        : `${log.length} edits to the family tree`;
+
+      const body = log.map(e => '  ' + e.describe).join('\n');
+      return subject + '\n\n' + body + '\n\nPublished from admin.html';
+    },
+  };
+})();

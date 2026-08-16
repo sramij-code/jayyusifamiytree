@@ -185,9 +185,13 @@
   <div id="publish-bar">
     <span id="publish-state">○ IN SYNC WITH SITE</span>
     <button id="btn-publish" class="pub-btn" disabled>PUBLISH THEME &darr;</button>
-    <button id="btn-publish-family" class="pub-btn">EXPORT FAMILY DATA &darr;</button>
-    <button id="btn-reset-draft" class="pub-btn ghost">DISCARD DRAFT</button>
-    <span class="pub-note">downloads a file &middot; commit it to update the live site</span>
+    <span class="pub-sep">|</span>
+    <span id="family-state">○ TREE IN SYNC</span>
+    <button id="btn-commit-family" class="pub-btn" disabled>CONNECT GITHUB &hellip;</button>
+    <button id="btn-publish-family" class="pub-btn ghost">EXPORT &darr;</button>
+    <button id="btn-discard-family" class="pub-btn ghost" disabled>DISCARD EDITS</button>
+    <button id="btn-reset-draft" class="pub-btn ghost">DISCARD THEME</button>
+    <span class="pub-note">tree edits commit straight to the repo &middot; theme downloads a file</span>
   </div>
 
   <script src="assets/vendor/d3.min.js"></script>
@@ -205,6 +209,8 @@
   <script src="assets/js/core/search.js"></script>
 
   <script src="assets/js/admin/auth.js"></script>
+  <script src="assets/js/admin/changelog.js"></script>
+  <script src="assets/js/admin/github.js"></script>
   <script src="assets/js/admin/publish.js"></script>
   <script src="assets/js/admin/edit.js"></script>
   <script src="assets/js/admin/pickers.js"></script>

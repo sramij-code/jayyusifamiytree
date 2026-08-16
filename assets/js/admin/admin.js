@@ -22,6 +22,8 @@ function initEventListeners() {
 
   document.getElementById('btn-publish').addEventListener('click', publishTheme);
   document.getElementById('btn-publish-family').addEventListener('click', publishFamily);
+  document.getElementById('btn-commit-family').addEventListener('click', commitFamily);
+  document.getElementById('btn-discard-family').addEventListener('click', discardFamilyDraft);
   document.getElementById('btn-reset-draft').addEventListener('click', () => FTAdminDraft.reset());
 }
 
@@ -31,6 +33,20 @@ function init() {
   if (draft) FTTheme.apply(draft);
 
   initState();
+
+  // Unpublished tree edits from a previous session replace the committed data.
+  // After initState, so the id counter and indexes exist to be corrected;
+  // before initSVG, so no render is attempted yet — reseed the visible set
+  // directly rather than via resetView, which renders and would run before
+  // the SVG layers exist.
+  if (FTChangeLog.hasDraft()) {
+    FTChangeLog.applyDraft();
+    const home = homeNodeId();
+    state.visibleNodes = new Set([home]);
+    state.expandedNodes = new Set([home]);
+    expandNode(home, true);
+  }
+
   initSVG();
   initEventListeners();
   initSearch();
@@ -39,6 +55,7 @@ function init() {
   render(false);
   renderSearchResults('', document.getElementById('search-results'));
   markDirty();
+  markFamilyDirty();
   setTimeout(() => fitToNodes([...state.visibleNodes], true), 100);
 }
 

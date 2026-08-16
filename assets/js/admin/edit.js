@@ -137,6 +137,22 @@ function saveRelative() {
   recomputeVisibleNodes();
   state.visibleNodes.add(newId);
 
+  // Record before rendering: `describe` needs the tree as it is now, and a
+  // later edit could rename the target or move it.
+  const OP = { child: 'add_child', partner: 'add_wife', parent: 'add_father' };
+  const REL_AR = { son: 'ابن', daughter: 'ابنة', wife: 'زوجة', father: 'أب' };
+  const relKey = document.getElementById('modal-relation').value;
+  FTChangeLog.record({
+    op: OP[rel.kind],
+    target: targetId,
+    targetName: targetPerson.name,
+    id: newId,
+    name: name,
+    gender: rel.gender,
+    generation: newGen,
+    describe: `+ ${name} · ${REL_AR[relKey]} of ${targetPerson.name} (${targetId})`,
+  });
+
   closeModal();
   render(true);
 
@@ -181,8 +197,18 @@ function startEditName(personId) {
 
   function commit() {
     const newName = input.value.trim();
-    if (newName) {
+    // A blur with the name unchanged is the common case — closing the editor
+    // by clicking away. Only an actual change is worth a changelog line.
+    if (newName && newName !== person.name) {
+      const oldName = person.name;
       state.people[personId].name = newName;
+      FTChangeLog.record({
+        op: 'rename',
+        target: personId,
+        from: oldName,
+        to: newName,
+        describe: `~ ${personId}: ${oldName} → ${newName}`,
+      });
       d3.select('#nodes-layer').selectAll('.node-group')
         .filter(d => d.id === personId)
         .select('.node-text')

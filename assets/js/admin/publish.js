@@ -39,6 +39,54 @@ function markDirty() {
   if (btn) btn.disabled = !dirty;
 }
 
+// Family data has its own watermark. Theme dirtiness and tree dirtiness are
+// independent — you can restyle without editing anyone, and vice versa — and
+// before this the tree had no indicator at all, so unsaved edits were
+// invisible right up until the tab closed on them.
+function markFamilyDirty() {
+  const n = typeof FTChangeLog === 'undefined' ? 0 : FTChangeLog.count();
+
+  const el = document.getElementById('family-state');
+  if (el) {
+    el.textContent = n === 0
+      ? '○ TREE IN SYNC'
+      : '● ' + n + (n === 1 ? ' EDIT' : ' EDITS') + ' UNPUBLISHED';
+    el.className = n === 0 ? '' : 'dirty';
+  }
+
+  const commitBtn = document.getElementById('btn-commit-family');
+  if (commitBtn) {
+    const connected = FTGitHub.hasToken();
+    commitBtn.textContent = connected
+      ? 'COMMIT TO ' + FTGitHub.branch.toUpperCase() + ' ↑'
+      : 'CONNECT GITHUB …';
+    // Without a token the button's job is to collect one, so it stays live
+    // even with nothing to publish.
+    commitBtn.disabled = connected && n === 0;
+  }
+
+  const discardBtn = document.getElementById('btn-discard-family');
+  if (discardBtn) discardBtn.disabled = n === 0;
+}
+
+// Throw away the draft and every unpublished edit, back to the committed
+// data/family.js. Confirmed because it is unrecoverable — the whole point of
+// the draft is that nothing else is holding this work.
+function discardFamilyDraft() {
+  const n = FTChangeLog.count();
+  if (n > 0 && !window.confirm(
+      'Discard ' + n + ' unpublished ' + (n === 1 ? 'edit' : 'edits') + '?\n\n' +
+      'This cannot be undone.')) return;
+
+  FTChangeLog.clearDraft();
+  FTChangeLog.clearLog();
+
+  // Reload rather than unpicking the mutations: window.FT_FAMILY still holds
+  // the pristine committed data, and re-deriving from it is exact where
+  // reversing edits by hand would not be.
+  window.location.reload();
+}
+
 function download(filename, text) {
   const blob = new Blob([text], { type: 'text/javascript;charset=utf-8' });
   const a = document.createElement('a');
@@ -72,6 +120,8 @@ function publishTheme() {
 }
 
 // Structural edits (wives, children, renames) are in-memory too. Same contract.
+// Kept as the offline path: it works with no token and no network, so it is
+// also the fallback if a commit fails and you need the work off this device.
 function publishFamily() {
   const out = {
     people: state.people,
@@ -82,4 +132,70 @@ function publishFamily() {
   download('family.js',
     'window.FT_FAMILY = ' + JSON.stringify(out, null, 2) + ';\n' +
     'window.familyData = window.FT_FAMILY;\n');
+  // The changelog goes with it, or the downloaded tree arrives with no record
+  // of how it got that way.
+  if (FTChangeLog.count() > 0) download('changes.jsonl', FTChangeLog.toJSONL() + '\n');
+}
+
+// ---------------------------------------------------------------------------
+// Commit straight to the repo.
+// ---------------------------------------------------------------------------
+
+function setFamilyStatus(text, kind) {
+  const el = document.getElementById('family-state');
+  if (!el) return;
+  el.textContent = text;
+  el.className = kind || '';
+}
+
+async function connectGitHub() {
+  const current = FTGitHub.hasToken();
+  const msg = current
+    ? 'Replace the stored GitHub token?\n\nLeave blank and press OK to disconnect.'
+    : 'GitHub personal access token\n\n' +
+      'Fine-grained, Contents: read and write, this repository only.\n' +
+      'Stored in this browser only — never committed. Do not use a shared machine.';
+  const t = window.prompt(msg, '');
+  if (t === null) return;               // cancelled
+
+  if (!t.trim()) {
+    FTGitHub.clearToken();
+    setFamilyStatus('○ github disconnected');
+    markFamilyDirty();
+    return;
+  }
+
+  FTGitHub.setToken(t);
+  setFamilyStatus('checking token…');
+  try {
+    const repo = await FTGitHub.verify();
+    setFamilyStatus('✓ connected to ' + repo);
+  } catch (e) {
+    // Don't keep a credential that just proved it does not work.
+    FTGitHub.clearToken();
+    setFamilyStatus('✕ ' + e.message, 'dirty');
+  }
+  markFamilyDirty();
+}
+
+async function commitFamily() {
+  if (!FTGitHub.hasToken()) { await connectGitHub(); return; }
+  if (FTChangeLog.count() === 0) return;
+
+  const btn = document.getElementById('btn-commit-family');
+  if (btn) btn.disabled = true;
+
+  try {
+    const r = await FTGitHub.publish(msg => setFamilyStatus('· ' + msg));
+    // Only now is the work safely off this device, so only now is it safe to
+    // drop the draft that was protecting it.
+    FTChangeLog.clearLog();
+    FTChangeLog.clearDraft();
+    setFamilyStatus('✓ committed ' + r.count + ' to ' + r.branch + ' · ' + r.sha.slice(0, 7));
+  } catch (e) {
+    // The draft and log are deliberately untouched on failure — a network
+    // blip must not cost the edits.
+    setFamilyStatus('✕ ' + e.message, 'dirty');
+  }
+  markFamilyDirty();
 }

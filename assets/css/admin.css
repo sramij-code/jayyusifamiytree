@@ -198,6 +198,14 @@
 }
 #publish-state { letter-spacing: 1px; }
 #publish-state.dirty { color: #b45309; font-weight: 700; }
+
+/* Tree dirtiness is tracked separately from theme dirtiness: restyling and
+   editing people are independent, and before this the tree had no watermark
+   at all, so unsaved edits were invisible until the tab closed on them. */
+#family-state { letter-spacing: 1px; }
+#family-state.dirty { color: #b45309; font-weight: 700; }
+.pub-sep { color: var(--sidebar-border); }
+
 .pub-btn {
   font-family: var(--mono); font-size: 10px; letter-spacing: .5px;
   padding: 4px 10px; border-radius: 5px; cursor: pointer;

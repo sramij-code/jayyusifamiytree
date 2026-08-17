@@ -10476,12 +10476,6 @@ window.FT_FAMILY = {
       "gender": "male",
       "generation": 10
     },
-    "pl153di8h": {
-      "id": "pl153di8h",
-      "name": "Ola1",
-      "gender": "female",
-      "generation": 1
-    },
     "p7jsup317": {
       "id": "p7jsup317",
       "name": "Mona1",
@@ -18165,14 +18159,6 @@ window.FT_FAMILY = {
       "children": [
         "p1747"
       ]
-    },
-    {
-      "id": "ppwvmo0x76",
-      "partners": [
-        "p2",
-        "pl153di8h"
-      ],
-      "children": []
     },
     {
       "id": "pp0odm6r3z",

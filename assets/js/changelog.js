@@ -30,9 +30,26 @@
 ============================================================================ */
 
 var FTChangeLog = window.FTChangeLog = (function () {
-  const DRAFT_KEY = 'ftFamilyDraft';   // the mutated tree, so a tab close is survivable
-  const LOG_KEY   = 'ftChangeLog';     // edits not yet committed to the repo
-  const WHO_KEY   = 'ftEditorName';    // who to credit in the log
+  // Storage is per ORIGIN, so index.html and admin.html share it — and they mean
+  // different things by a draft. For a proposer it is "my suggestion, still
+  // showing on my own tree while it waits for review", which is why submit()
+  // keeps it after clearing the log. For the admin it is "unpublished edits,
+  // about to be committed". Under one key the proposer's draft was applied by
+  // admin.html on boot, so the admin saw an unapproved proposal as part of the
+  // tree — with an empty log, so nothing said the tree was local. One unrelated
+  // admin edit would then have enabled COMMIT, which serialises state wholesale.
+  //
+  // The role is read off the page rather than set by a call: index.html has the
+  // propose bar and admin.html does not, and propose-ui.js already treats that
+  // element's presence as "this is the propose page". Deriving it removes an
+  // ordering requirement that could be silently violated by any future script
+  // that reads the draft before the setter ran.
+  const ROLE = (typeof document !== 'undefined' &&
+                document.getElementById('propose-bar')) ? 'propose' : 'admin';
+
+  const DRAFT_KEY = 'ftFamilyDraft:' + ROLE;  // the mutated tree, so a tab close is survivable
+  const LOG_KEY   = 'ftChangeLog:' + ROLE;    // edits not yet committed to the repo
+  const WHO_KEY   = 'ftEditorName';           // who to credit — same person either way
 
   function read(key, fallback) {
     try {

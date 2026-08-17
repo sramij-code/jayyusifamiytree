@@ -50,6 +50,17 @@ var FTReview = window.FTReview = (function () {
   let decisions = new Map();  // id -> the latest decision, committed or local
   let committed = [];         // decisions read from the repo on the last load
 
+  // Whether we have actually ASKED, and whether the answer was complete.
+  //
+  // The button must distinguish three states, not two: "nothing pending" and
+  // "could not reach the inbox" look identical if you only count rows, and a
+  // control that quietly reads as clean when it means "unknown" is the same defect
+  // as the publish bar claiming TREE IN SYNC while hiding people.
+  let loadState = 'unknown';   // 'unknown' | 'ok' | 'error'
+  let lastLoadAt = null;
+  let appliedOk = true;        // could data/changes.jsonl be read?
+  let reviewedOk = true;       // could data/proposals-reviewed.json be read?
+
   function readLocal(key, fallback) {
     try {
       const raw = localStorage.getItem(key);
@@ -63,11 +74,14 @@ var FTReview = window.FTReview = (function () {
   // is visible and harmless — far better than blocking review entirely.
   async function appliedIds() {
     const ids = new Set();
+    let ok = true;
     try {
       // Cache-bust: this file changes on every publish and would otherwise be
       // served stale for minutes.
       const res = await fetch('data/changes.jsonl?t=' + Date.now(), { cache: 'no-store' });
-      if (!res.ok) return ids;
+      // A 404 is normal before the first publish; anything else means we could not
+      // read it, and the pending count is then an OVER-count.
+      if (!res.ok) return { ids: ids, ok: res.status === 404 };
       const text = await res.text();
       for (const line of text.split('\n')) {
         if (!line.trim()) continue;
@@ -76,8 +90,8 @@ var FTReview = window.FTReview = (function () {
           if (e.fromProposal) ids.add(e.fromProposal);
         } catch (err) { /* skip a torn line rather than abandon the file */ }
       }
-    } catch (e) { /* file:// or offline */ }
-    return ids;
+    } catch (e) { ok = false; }   // file:// or offline
+    return { ids: ids, ok: ok };
   }
 
   // Decisions committed to the repo. Best effort for the same reasons as
@@ -85,12 +99,13 @@ var FTReview = window.FTReview = (function () {
   async function committedDecisions() {
     try {
       const res = await fetch(REVIEWED_PATH + '?t=' + Date.now(), { cache: 'no-store' });
-      if (!res.ok) return [];
+      // Absent until the first decision is committed, which is not a failure.
+      if (!res.ok) return { list: [], ok: res.status === 404 };
       const doc = JSON.parse(await res.text());
       const list = doc && Array.isArray(doc.decisions) ? doc.decisions : [];
-      return list.filter(d => d && typeof d === 'object' && typeof d.id === 'string')
-                 .map(d => Object.assign({}, d, { committed: true }));
-    } catch (e) { return []; }   // file://, offline, or malformed
+      return { list: list.filter(d => d && typeof d === 'object' && typeof d.id === 'string')
+                         .map(d => Object.assign({}, d, { committed: true })), ok: true };
+    } catch (e) { return { list: [], ok: false }; }   // offline or malformed
   }
 
   // Decisions made on THIS device, durable only in localStorage. Entries written
@@ -212,10 +227,17 @@ var FTReview = window.FTReview = (function () {
     // ---- fetch -----------------------------------------------------------
 
     load: async function () {
+      // Mark the attempt as failed FIRST, so an exception anywhere below cannot
+      // leave the button reading 'clean' from a previous successful load.
+      loadState = 'error';
       if (!FTSupa.configured()) throw new Error('Supabase is not configured.');
       const fetched = await FTSupa.select('proposals', 'select=*&order=created_at.desc');
-      const applied = await appliedIds();
-      committed = await committedDecisions();
+      const app = await appliedIds();
+      const rev = await committedDecisions();
+      const applied = app.ids;
+      appliedOk = app.ok;
+      reviewedOk = rev.ok;
+      committed = rev.list;
       decisions = decisionMap(allDecisions());
       rows = (fetched || []).map(r => Object.assign({}, r, {
         // `ops` is a jsonb column, so neither it nor its elements need be what
@@ -235,8 +257,51 @@ var FTReview = window.FTReview = (function () {
               : 'pending',
         _decision: decisions.get(r.id) || null,
       }));
+      loadState = 'ok';
+      lastLoadAt = new Date().toISOString();
       return rows;
     },
+
+    // ---- the اقتراحات button --------------------------------------------
+
+    // Derived here rather than in the DOM helper so it can be tested without a
+    // document, which is the only reason the three states are verifiable at all.
+    //
+    // `state` is one of:
+    //   'unknown'  never asked (or Supabase not configured) — NOT clean
+    //   'error'    asked and failed — NOT clean
+    //   'pending'  N proposals awaiting a decision
+    //   'clean'    asked successfully, nothing awaiting
+    //
+    // `partial` means the inbox was read but the git-side files were not, so
+    // approved proposals may still be counted as pending. Over-counting is the
+    // safe direction — it prompts a look rather than hiding work — but it is
+    // reported rather than passed off as an exact figure.
+    buttonState: function () {
+      if (loadState !== 'ok') {
+        return {
+          state: loadState === 'error' ? 'error' : 'unknown',
+          count: null, partial: false, badge: loadState === 'error' ? '!' : '…',
+          title: loadState === 'error'
+            ? 'Could not read the proposals inbox. The count is unknown — press تحديث.'
+            : 'Proposals have not been loaded yet. Open the drawer or press تحديث.',
+        };
+      }
+      const n = this.pending().length;
+      const partial = !appliedOk || !reviewedOk;
+      const when = lastLoadAt ? ' · checked ' + lastLoadAt.slice(11, 16) + 'Z' : '';
+      return {
+        state: n > 0 ? 'pending' : 'clean',
+        count: n,
+        partial: partial,
+        badge: n > 0 ? String(n) : '✓',
+        title: (n > 0 ? n + ' proposal(s) awaiting a decision' : 'No proposals awaiting a decision') +
+               (partial ? ' · WARNING: decision history could not be read, so this may be an over-count' : '') +
+               when,
+      };
+    },
+
+    loadState: function () { return loadState; },
 
     pending: function () { return rows.filter(r => r._state === 'pending'); },
 

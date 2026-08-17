@@ -201,6 +201,31 @@ module.exports = function ({ describe, ok, eq }) {
     ok(weird.length === 0, 'all person ids match p[0-9a-z]+', weird.slice(0, 5).join(', '));
   });
 
+  describe('the proposals button paints every state it can be in', () => {
+    // buttonState() is unit-tested; this checks the DOM layer and the stylesheet
+    // actually implement each state, which the suite cannot see rendered.
+    const ui = read('assets/js/admin/review-ui.js');
+    const css = read('assets/css/admin.css');
+
+    for (const cls of ['rv-pending', 'rv-clean', 'rv-unknown', 'rv-partial']) {
+      ok(ui.indexOf(cls) !== -1, 'review-ui applies .' + cls);
+      ok(new RegExp('#btn-review\\.' + cls).test(css), 'admin.css styles #btn-review.' + cls);
+    }
+
+    // The badge must not be display:none any more — it now carries ✓ / … / ! as
+    // well as a count, so hiding it would restore the two-state ambiguity.
+    const badge = css.slice(css.indexOf('#review-badge {'), css.indexOf('}', css.indexOf('#review-badge {')));
+    ok(!/display:\s*none/.test(badge), '#review-badge is not hidden by default');
+
+    // updateReviewBadge must not compute the state itself, or the DOM path and the
+    // tested path can drift.
+    const fn = ui.slice(ui.indexOf('function updateReviewBadge'),
+                        ui.indexOf('\n}', ui.indexOf('function updateReviewBadge')));
+    ok(/FTReview\.buttonState\(\)/.test(fn), 'it reads FTReview.buttonState()');
+    ok(!/\.pending\(\)\.length/.test(fn),
+       'and does not recompute the count from pending() itself');
+  });
+
   describe('both node class builders honour markedForRemovalIds', () => {
     // The suite cannot see rendering, so this is checked structurally. render.js
     // builds the class list TWICE — once for entering nodes and once for the

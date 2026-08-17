@@ -486,11 +486,42 @@ body:not(.admin-mode) #app { padding-top: 0; }
 /* ---- PROPOSALS DRAWER ----
    Slides in from the left. The canvas is LTR-forced but the drawer is Arabic
    content, so it sets direction back to rtl. */
+/* The اقتراحات button carries its own state, because "nothing pending" and
+   "could not reach the inbox" must not look the same. Four looks:
+
+     rv-pending  amber, count      work is waiting
+     rv-clean    muted, ✓          asked, nothing waiting
+     rv-unknown  dashed, … or !    never asked, or the ask failed
+     rv-partial  adds a red dot    counted, but the git side was unreadable
+*/
 #review-badge {
-  display: none;
   background: #b45309; color: #fff;
   border-radius: 9px; padding: 0 5px; margin-right: 4px;
   font-size: 9px; font-weight: 700;
+}
+
+#btn-review.rv-pending {
+  border-color: #b45309;
+  color: #7c2d12;
+  background: rgba(180, 83, 9, 0.10);
+  font-weight: 700;
+}
+
+/* Muted on purpose: a clean inbox should recede rather than compete with the
+   publish controls next to it. */
+#btn-review.rv-clean { opacity: .78; }
+#btn-review.rv-clean #review-badge { background: transparent; color: var(--accent-dim); }
+
+/* Dashed border reads as "indeterminate" rather than "fine". */
+#btn-review.rv-unknown { border-style: dashed; opacity: .9; }
+#btn-review.rv-unknown #review-badge { background: var(--accent-dim); }
+
+/* An over-count is possible; say so without hiding the number. */
+#btn-review.rv-partial::after {
+  content: '';
+  display: inline-block;
+  width: 5px; height: 5px; border-radius: 50%;
+  background: #dc2626; margin-right: 3px; vertical-align: top;
 }
 #review-drawer {
   position: fixed;

@@ -509,6 +509,127 @@ module.exports = function ({ describe, ok, eq }) {
     eq(run(a, 'FTReview.uncommitted().length'), 1, 'the decision survives the discard');
   });
 
+  describe('the proposals button cannot go stale or read clean when unknown', () => {
+    // The trap this avoids is the one the publish bar fell into: a control that
+    // says "nothing to do" when it means "I could not ask". Four states, and
+    // 'clean' is reachable ONLY after a load that succeeded.
+    const inbox = (rows) => async (url) => {
+      const u = String(url);
+      if (u.indexOf('proposals-reviewed.json') !== -1) return { ok: false, status: 404 };
+      if (u.indexOf('changes.jsonl') !== -1) return { ok: true, status: 200, text: async () => '' };
+      return { ok: true, status: 200, json: async () => rows };
+    };
+
+    // 1. Never asked.
+    const fresh = boot({ role: 'admin' });
+    eq(run(fresh, 'FTReview.buttonState().state'), 'unknown', 'before any load it is unknown');
+    ok(run(fresh, "FTReview.buttonState().state") !== 'clean', 'and specifically NOT clean');
+    eq(run(fresh, 'FTReview.buttonState().count'), null, 'with no count to show');
+
+    // 2. Asked and failed.
+    const broken = boot({ role: 'admin', net: async () => ({ ok: false, status: 500, text: async () => 'boom' }) });
+    return run(broken, 'FTReview.load().catch(function(){ return null; })').then(() => {
+      eq(run(broken, 'FTReview.buttonState().state'), 'error', 'a failed load is an error state');
+      eq(run(broken, 'FTReview.buttonState().badge'), '!', 'and shows ! rather than a count');
+
+      // 3. Loaded with work waiting.
+      const busy = boot({ role: 'admin', net: inbox([
+        row('b1', [{ op: 'add_wife', target: 'p2', id: 'pb1', name: 'ا', describe: '+ ا' }]),
+        row('b2', [{ op: 'add_wife', target: 'p3', id: 'pb2', name: 'ب', describe: '+ ب' }]),
+      ]) });
+      return run(busy, 'FTReview.load()').then(() => {
+        const st = run(busy, 'FTReview.buttonState()');
+        eq(st.state, 'pending', 'two pending proposals give the pending state');
+        eq(st.count, 2, 'with the count');
+        eq(st.badge, '2', 'shown on the badge');
+        eq(st.partial, false, 'and it is not flagged partial');
+
+        // 4. Loaded with nothing waiting.
+        const clean = boot({ role: 'admin', net: inbox([]) });
+        return run(clean, 'FTReview.load()').then(() => {
+          const c = run(clean, 'FTReview.buttonState()');
+          eq(c.state, 'clean', 'an empty inbox is clean');
+          eq(c.badge, '✓', 'shown as a tick, not a bare 0');
+
+          // 5. THE STALE CASE: a good load, then a failed one. It must not keep
+          // reading clean off the previous answer.
+          let fail = false;
+          const flaky = boot({ role: 'admin', net: async (url) => {
+            if (fail) throw new TypeError('network down');
+            return inbox([])(url);
+          } });
+          return run(flaky, 'FTReview.load()').then(() => {
+            eq(run(flaky, 'FTReview.buttonState().state'), 'clean', 'clean after the good load');
+            return run(flaky, '(function(){ return null; })()');
+          }).then(() => {
+            fail = true;
+            return run(flaky, 'FTReview.load().catch(function(){ return null; })');
+          }).then(() => {
+            eq(run(flaky, 'FTReview.buttonState().state'), 'error',
+               'a later FAILED load must not keep reading clean');
+          });
+        });
+      });
+    });
+  });
+
+  describe('the button reports an over-count rather than implying precision', () => {
+    // pending = inbox − approved − rejected. If the git-side files cannot be read,
+    // approved proposals are still counted as pending. Over-counting is the safe
+    // direction, but it must be flagged rather than presented as exact.
+    const net = async (url) => {
+      const u = String(url);
+      if (u.indexOf('proposals-reviewed.json') !== -1) return { ok: false, status: 404 };
+      if (u.indexOf('changes.jsonl') !== -1) return { ok: false, status: 500 };   // unreadable
+      return { ok: true, status: 200, json: async () => ([row('o1', [])]) };
+    };
+    const a = boot({ role: 'admin', net });
+    return run(a, 'FTReview.load()').then(() => {
+      const st = run(a, 'FTReview.buttonState()');
+      eq(st.state, 'pending', 'it still reports the work');
+      eq(st.partial, true, 'but flags that the count may be high');
+      ok(/over-count/.test(st.title), 'and says so in the tooltip', st.title);
+
+      // A 404 on the decisions file is NORMAL before the first one is committed.
+      const net2 = async (url) => {
+        const u = String(url);
+        if (u.indexOf('proposals-reviewed.json') !== -1) return { ok: false, status: 404 };
+        if (u.indexOf('changes.jsonl') !== -1) return { ok: false, status: 404 };
+        return { ok: true, status: 200, json: async () => ([]) };
+      };
+      const b = boot({ role: 'admin', net: net2 });
+      return run(b, 'FTReview.load()').then(() => {
+        eq(run(b, 'FTReview.buttonState().partial'), false,
+           'a 404 before the first publish is not a partial read');
+        eq(run(b, 'FTReview.buttonState().state'), 'clean', 'and the inbox is genuinely clean');
+      });
+    });
+  });
+
+  describe('deciding a proposal updates the button immediately', () => {
+    // Otherwise the badge is stale until the next refresh, which is how a reviewer
+    // ends up trusting a number that no longer holds.
+    const net = async (url) => {
+      const u = String(url);
+      if (u.indexOf('proposals-reviewed.json') !== -1) return { ok: false, status: 404 };
+      if (u.indexOf('changes.jsonl') !== -1) return { ok: true, status: 200, text: async () => '' };
+      return { ok: true, status: 200, json: async () => ([
+        row('d1', [{ op: 'add_wife', target: 'p2', id: 'pdd1', name: 'ا', describe: '+ ا' }]),
+      ]) };
+    };
+    const a = boot({ role: 'admin', net });
+    return run(a, 'FTReview.load()').then(() => {
+      eq(run(a, 'FTReview.buttonState().count'), 1, 'one pending to start');
+      run(a, 'FTReview.reject(FTReview.all()[0]);');
+      const st = run(a, 'FTReview.buttonState()');
+      eq(st.count, 0, 'rejecting drops the count with no reload');
+      eq(st.state, 'clean', 'and the button goes clean');
+      // Reinstating puts it back, so the button cannot under-report either.
+      run(a, "FTReview.reinstate('d1');");
+      eq(run(a, 'FTReview.buttonState().count'), 1, 'reinstating restores the count');
+    });
+  });
+
   describe('crafted proposals cannot break the domain rules', () => {
     const cases = [
       ['add_father to someone who already has one',

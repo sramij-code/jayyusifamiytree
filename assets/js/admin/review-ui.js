@@ -54,10 +54,22 @@ async function refreshReview(quiet) {
 
 function updateReviewBadge() {
   const badge = document.getElementById('review-badge');
-  if (!badge) return;
-  const n = FTReview.pending().length;
-  badge.textContent = n ? String(n) : '';
-  badge.style.display = n ? '' : 'none';
+  const btn = document.getElementById('btn-review');
+  if (!badge || !btn) return;
+
+  // All four states come from FTReview.buttonState(); this function only paints
+  // them. Keeping the decision out of the DOM layer is what makes it testable —
+  // and the reason 'clean' cannot be reached without a successful load.
+  const s = FTReview.buttonState();
+
+  badge.textContent = s.badge;
+  badge.style.display = '';          // always shown: '✓', a count, '…' or '!'
+
+  btn.classList.toggle('rv-pending', s.state === 'pending');
+  btn.classList.toggle('rv-clean',   s.state === 'clean');
+  btn.classList.toggle('rv-unknown', s.state === 'unknown' || s.state === 'error');
+  btn.classList.toggle('rv-partial', !!s.partial);
+  btn.title = s.title;
 }
 
 // The queue shows what still needs a decision; everything else is history.

@@ -89,6 +89,33 @@ var FTChangeLog = window.FTChangeLog = (function () {
     draft: function () { return read(DRAFT_KEY, null); },
     hasDraft: function () { return this.draft() !== null; },
 
+    // What the saved draft HIDES from the committed data.
+    //
+    // applyDraft replaces state.people wholesale, so a draft saved before someone
+    // was committed keeps them off this browser's tree indefinitely — and because
+    // the changelog can be empty, the publish bar cheerfully said "TREE IN SYNC"
+    // while the view was missing a person data/family.js contains. That produced
+    // the worst kind of confusion: an admin reviewing a proposal to delete Ola1,
+    // unable to see Ola1, with the proposal refusing to apply and staying pending
+    // forever because its target did not exist in the draft.
+    //
+    // Only the committed-but-missing direction is a problem. Draft-only people are
+    // normal: they are unpublished admin edits, or a proposer's own sent
+    // suggestion, which the draft exists specifically to keep on screen.
+    //
+    // initState deep-copies familyData, so it stays an untouched baseline no
+    // matter how much state has been mutated.
+    draftDivergence: function () {
+      const d = this.draft();
+      const none = { missing: [], names: [] };
+      if (!d || !d.people || typeof familyData === 'undefined') return none;
+      const missing = Object.keys(familyData.people).filter(id => !d.people[id]);
+      return {
+        missing: missing,
+        names: missing.slice(0, 5).map(id => familyData.people[id].name),
+      };
+    },
+
     clearDraft: function () {
       try { localStorage.removeItem(DRAFT_KEY); } catch (e) { /* nothing to undo */ }
     },

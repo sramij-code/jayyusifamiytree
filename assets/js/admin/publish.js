@@ -52,15 +52,31 @@ function markFamilyDirty() {
   // proposal came back as pending on every other device.
   const d = typeof FTReview === 'undefined' ? 0 : FTReview.uncommitted().length;
 
+  // A stale draft hiding committed people is NOT "in sync", and saying so sent a
+  // reviewer looking for a person their own draft was hiding.
+  const hidden = typeof FTChangeLog === 'undefined' ? { missing: [] }
+                                                    : FTChangeLog.draftDivergence();
+
   const el = document.getElementById('family-state');
   if (el) {
     const bits = [];
     if (n) bits.push(n + (n === 1 ? ' EDIT' : ' EDITS'));
     if (d) bits.push(d + (d === 1 ? ' DECISION' : ' DECISIONS'));
-    el.textContent = bits.length === 0
-      ? '○ TREE IN SYNC'
-      : '● ' + bits.join(' + ') + ' UNPUBLISHED';
-    el.className = bits.length === 0 ? '' : 'dirty';
+    if (hidden.missing.length) {
+      el.textContent = '▲ ' + hidden.missing.length + ' HIDDEN BY STALE DRAFT' +
+                       (bits.length ? ' · ' + bits.join(' + ') + ' UNPUBLISHED' : '');
+      el.className = 'dirty';
+      el.title = 'This browser\'s draft is missing ' + hidden.missing.length +
+        ' person(s) that are in data/family.js: ' + hidden.names.join(', ') +
+        (hidden.missing.length > hidden.names.length ? ', …' : '') +
+        '. Commit any pending edits, then DISCARD DRAFT to resync.';
+    } else {
+      el.textContent = bits.length === 0
+        ? '○ TREE IN SYNC'
+        : '● ' + bits.join(' + ') + ' UNPUBLISHED';
+      el.className = bits.length === 0 ? '' : 'dirty';
+      el.title = '';
+    }
   }
 
   const commitBtn = document.getElementById('btn-commit-family');

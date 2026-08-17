@@ -200,6 +200,28 @@ function reviewCard(row, inHistory) {
     card.appendChild(note);
   }
 
+  // Why a previewed op could not be applied. Almost always one of two things: the
+  // target gained children since the proposal was written, or it is missing from
+  // this browser entirely — which a stale draft causes, so name that explicitly
+  // rather than leaving the reviewer hunting for someone they cannot see.
+  if (row._failed && row._failed.length) {
+    for (const reason of row._failed) {
+      const f = document.createElement('div');
+      f.className = 'review-failed';
+      f.textContent = '⚠ ' + reason;
+      card.appendChild(f);
+    }
+    const hidden = FTChangeLog.draftDivergence();
+    if (hidden.missing.length) {
+      const hint = document.createElement('div');
+      hint.className = 'review-failed hint';
+      hint.textContent = 'مسودة هذا المتصفح تُخفي ' + hidden.missing.length +
+        ' شخصًا موجودًا في البيانات المنشورة (' + hidden.names.join('، ') + '). ' +
+        'انشر أي تعديلات معلّقة ثم اضغط DISCARD DRAFT.';
+      card.appendChild(hint);
+    }
+  }
+
   const actions = document.createElement('div');
   actions.className = 'review-actions';
 
@@ -225,9 +247,13 @@ function reviewCard(row, inHistory) {
     } else if ((row.ops || []).length > 0) {
       actions.appendChild(reviewBtn('معاينة على الشجرة', '', () => {
         const r = FTReview.preview(row);
+        // Kept on the row, not just announced once: preview() builds a REASON per
+        // refused op and this threw it away, so a proposal that could not apply
+        // looked identical to one that simply showed nothing.
+        row._failed = r.failed;
         renderReviewList();
         reviewStatus(r.failed.length
-          ? 'تعذّر تطبيق ' + r.failed.length + ' من التعديلات'
+          ? 'تعذّر تطبيق ' + r.failed.length + ' من التعديلات — السبب على البطاقة'
           : 'معاينة — الشجرة تعرض هذا الاقتراح', r.failed.length ? 'err' : 'ok');
       }));
     }

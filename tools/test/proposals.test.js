@@ -344,6 +344,87 @@ module.exports = function ({ describe, ok, eq }) {
     eq(invariants(a), [], 'invariants hold');
   });
 
+  describe('a stale draft that hides committed people is detected', () => {
+    // The failure this closes, end to end: an admin could not see Ola1, a proposal
+    // to delete her refused to apply, it stayed pending forever, and the publish
+    // bar said "TREE IN SYNC" the whole time. applyDraft replaces state.people
+    // wholesale, so a draft saved before she was committed hid her indefinitely.
+    const committed = loadFamily();
+    // Must be a LEAF, or canDelete refuses for an unrelated reason and the test
+    // would pass while proving nothing about the draft.
+    const parents = new Set();
+    for (const pp of committed.partnerships) {
+      if (pp.children.length) for (const x of pp.partners) if (x) parents.add(x);
+    }
+    const victim = Object.keys(committed.people).find(id =>
+      id !== committed.root && id !== committed.loggedInUser && !parents.has(id));
+    const victimName = committed.people[victim].name;
+
+    const stale = JSON.parse(JSON.stringify(committed));
+    delete stale.people[victim];
+    stale.partnerships = stale.partnerships
+      .map(p => Object.assign({}, p, { partners: p.partners.map(x => x === victim ? null : x) }))
+      .filter(p => p.partners.some(Boolean) || p.children.length);
+
+    const store = {
+      'ftFamilyDraft:admin': JSON.stringify({ people: stale.people, partnerships: stale.partnerships }),
+      'ftChangeLog:admin': '[]',      // nothing unpublished, so the bar claimed sync
+    };
+    const a = boot({ store, role: 'admin' });
+    // The harness stops at initState(); admin.js:61-62 is what applies the draft.
+    run(a, 'if (FTChangeLog.hasDraft()) FTChangeLog.applyDraft();');
+
+    ok(!run(a, '!!state.people[' + JSON.stringify(victim) + ']'),
+       'the draft hides a committed person, reproducing the report');
+    eq(run(a, 'FTChangeLog.count()'), 0, 'and there is nothing unpublished');
+
+    const div = run(a, 'FTChangeLog.draftDivergence()');
+    eq(div.missing, [victim], 'the divergence names exactly who is hidden');
+    eq(div.names, [victimName], 'and reports their name for the warning');
+
+    // The proposal then refuses, WITH a reason — which the UI now shows.
+    const r = row('stale', [{ op: 'delete_person', target: victim, name: victimName,
+                              describe: '− ' + victimName }]);
+    const res = run(a, 'FTReview.preview(' + JSON.stringify(r) + ')');
+    eq(res.touched, [], 'nothing is marked, so nothing appears on the tree');
+    eq(res.failed.length, 1, 'the op is refused');
+    ok(/لا يوجد/.test(res.failed[0]), 'the reason says the target does not exist', res.failed[0]);
+    eq(run(a, 'FTReview.approve(' + JSON.stringify(r) + ')'), 0,
+       'and approving records nothing, so it stays pending');
+
+    // Discarding the stale draft is the cure.
+    const b = boot({ store: { 'ftChangeLog:admin': '[]' }, role: 'admin' });
+    run(b, 'if (FTChangeLog.hasDraft()) FTChangeLog.applyDraft();');
+    ok(run(b, '!!state.people[' + JSON.stringify(victim) + ']'),
+       'without the draft the person is present again');
+    eq(run(b, 'FTChangeLog.draftDivergence().missing'), [], 'and no divergence is reported');
+    run(b, 'FTReview.preview(' + JSON.stringify(r) + ')');
+    eq(run(b, 'state.markedForRemovalIds.size'), 1, 'the deletion previews normally');
+    eq(invariants(b), [], 'invariants hold');
+  });
+
+  describe('draft-only people are not mistaken for a stale draft', () => {
+    // The other direction must stay silent. A proposer's draft keeps their SENT
+    // suggestion on their own tree after clearLog(), so an empty log with a draft
+    // is normal there — treating it as stale would erase what they proposed.
+    const committed = loadFamily();
+    const extra = JSON.parse(JSON.stringify(committed));
+    extra.people['pdraftonly'] = { id: 'pdraftonly', name: 'مقترح', gender: 'female', generation: 2 };
+    extra.partnerships.push({ id: 'ppdraftonly', partners: ['p2', 'pdraftonly'], children: [] });
+
+    const store = {
+      'ftFamilyDraft:propose': JSON.stringify({ people: extra.people, partnerships: extra.partnerships }),
+      'ftChangeLog:propose': '[]',      // already sent
+      ftProposeMode: 'true',
+    };
+    const v = boot({ store, role: 'propose' });
+    run(v, 'if (FTChangeLog.hasDraft()) FTChangeLog.applyDraft();');
+    ok(run(v, "!!state.people['pdraftonly']"), "the proposer still sees their own suggestion");
+    eq(run(v, 'FTChangeLog.draftDivergence().missing'), [],
+       'a draft that only ADDS is not reported as stale');
+    eq(invariants(v), [], 'invariants hold');
+  });
+
   describe('crafted proposals cannot break the domain rules', () => {
     const cases = [
       ['add_father to someone who already has one',

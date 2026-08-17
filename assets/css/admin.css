@@ -588,6 +588,17 @@ body:not(.admin-mode) #app { padding-top: 0; }
   text-decoration: line-through;
 }
 
+/* Why an op could not be applied. Red rather than the amber used for the
+   proposer's note: a note is information, this is an obstacle. */
+.review-failed {
+  font-family: var(--arabic); font-size: 12px; line-height: 1.65;
+  color: #991b1b;
+  background: rgba(220, 38, 38, 0.09);
+  border-right: 3px solid #dc2626;
+  border-radius: 6px; padding: 6px 9px; margin: 6px 0 2px;
+}
+.review-failed.hint { font-weight: 700; }
+
 /* A history row is context, not a queue item, so it never competes with the
    pending cards above it. */
 .review-card.in-history { opacity: .72; }

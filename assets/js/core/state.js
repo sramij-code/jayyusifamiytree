@@ -22,6 +22,18 @@ const state = {
   highlightedNodeId: null,
   selectedPathIds: new Set(),
 
+  // Nodes to draw as "about to be removed" without removing them yet.
+  //
+  // Only admin's proposal preview ever fills this, but it is a rendering state
+  // like selectedPathIds rather than an admin feature, so it lives here and
+  // render.js reads it unconditionally. A viewer simply never populates it.
+  //
+  // It exists because a deletion cannot be previewed by performing it: preview()
+  // reveals, highlights and frames by looking each touched person up in
+  // state.people, so deleting them first made all three silently skip and the
+  // reviewer saw nothing change except the view zooming out to the whole tree.
+  markedForRemovalIds: new Set(),
+
   // ---------------------------------------------------------------------------
   // Ids for anyone added after the 1999 import.
   //

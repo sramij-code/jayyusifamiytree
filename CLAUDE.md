@@ -86,6 +86,22 @@ only in `localStorage` and reappeared as pending on every other device. Three pl
 count both: `markFamilyDirty()` (the indicator and the COMMIT button), `commitFamily()`, and
 `FTGitHub.publish()`.
 
+### Previewing a deletion
+
+`FTReview.preview()` applies additions for real but only **marks** a `delete_person` op
+(`state.markedForRemovalIds` → `.node-marked-removal`, drawn struck through in red).
+`FTReview.approve()` performs the deletion.
+
+This asymmetry is load-bearing, not an inconsistency. `preview()` reveals, highlights and frames each
+touched person by looking them up in `state.people`, so deleting first made all three silently skip:
+no highlight, and an empty frame meant `fitToNodes` fell back to every visible node, zooming *out*
+instead of to the change. A deletion was the one op that could not be seen — the one that most needs
+to be. Leaving the person in place fixes reveal, highlight and framing at once.
+
+Consequences to preserve: `dismiss()` must clear the marks explicitly (nothing was mutated, so the
+undo snapshot does not cover them), and `approve()` re-checks with `deletePerson` rather than trusting
+the mark, since a ⌘Z or an admin edit can invalidate it between marking and approving.
+
 ### Proposal decisions (`data/proposals-reviewed.json`)
 
 ```json

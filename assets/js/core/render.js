@@ -103,6 +103,7 @@ function renderNodes(layout, animate) {
       if (d.id === state.loggedInUser) cls += ' node-logged-in';
       if (d.id === state.highlightedNodeId) cls += ' node-highlighted';
       if (state.selectedPathIds.has(d.id)) cls += ' node-on-path';
+      if (state.markedForRemovalIds.has(d.id)) cls += ' node-marked-removal';
       if (d.id === state.selectedNodeId) cls += ' node-selected';
       return cls;
     })
@@ -187,6 +188,7 @@ function renderNodes(layout, animate) {
     if (d.id === state.loggedInUser) cls += ' node-logged-in';
     if (d.id === state.highlightedNodeId) cls += ' node-highlighted';
     if (state.selectedPathIds.has(d.id)) cls += ' node-on-path';
+    if (state.markedForRemovalIds.has(d.id)) cls += ' node-marked-removal';
     if (d.id === state.selectedNodeId) cls += ' node-selected';
     return cls;
   });

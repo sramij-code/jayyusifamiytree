@@ -424,6 +424,30 @@ var FTReview = window.FTReview = (function () {
       const touched = [];
       const failed = [];
       ops.forEach((op, i) => {
+        // A DELETION IS MARKED, NOT PERFORMED.
+        //
+        // Everything below reveals, highlights and frames by looking each touched
+        // person up in state.people, so performing the delete first made all
+        // three skip it: the reviewer got no highlight, and an empty frame meant
+        // fitToNodes fell back to the entire visible tree, so the view zoomed OUT
+        // instead of going to the change. A deletion was the one op you could not
+        // see, which is the one op you most need to see before approving.
+        //
+        // Leaving the person in place fixes reveal, highlight and framing at once
+        // and draws them as node-marked-removal. approve() performs the delete.
+        if (op && op.op === 'delete_person') {
+          if (canDelete(op.target)) {
+            previewApplied.add(i);
+            state.markedForRemovalIds.add(op.target);
+            touched.push(op.target);
+          } else {
+            // Say WHY, since "cannot delete" is the common outcome here: the
+            // proposer saw a leaf, and by review time they may have children.
+            failed.push((deleteBlockedReason(op.target) || 'cannot delete') +
+                        ' — ' + ((op && op.describe) || op.target));
+          }
+          return;
+        }
         if (this.applyOp(op)) { previewApplied.add(i); touched.push(op.id || op.target); }
         else failed.push((op && op.describe) || (op && op.op) || 'malformed op');
       });
@@ -457,6 +481,10 @@ var FTReview = window.FTReview = (function () {
       previewing = null;
       previewApplied = new Set();
       state.selectedPathIds = new Set();
+      // Marks are not part of the undo snapshot — nothing was mutated to mark a
+      // node — so they have to be cleared explicitly or a dismissed deletion
+      // stays drawn as pending removal forever.
+      state.markedForRemovalIds = new Set();
       FTChangeLog.undo();
       render(true);
     },
@@ -474,6 +502,7 @@ var FTReview = window.FTReview = (function () {
       if (!previewing || previewing.id !== row.id) return 0;
       previewing = null;
       state.selectedPathIds = new Set();
+      state.markedForRemovalIds = new Set();
 
       let recorded = 0;
       (Array.isArray(row.ops) ? row.ops : []).forEach((op, i) => {
@@ -488,7 +517,16 @@ var FTReview = window.FTReview = (function () {
         // The state check alone: on a SECOND approval of the same proposal the
         // person exists again from the first, so it recorded the entry twice.
         if (!previewApplied.has(i)) return;
-        if (op.op !== 'delete_person' && op.id && !state.people[op.id]) return;
+
+        // The deletion happens HERE, not in preview — preview only marked it.
+        // deletePerson re-checks rather than trusting the mark: a ⌘Z during the
+        // preview, or an admin edit that gave this person a child, can invalidate
+        // it between marking and approving. A refusal must not be recorded.
+        if (op.op === 'delete_person') {
+          if (!deletePerson(op.target)) return;   // it invalidates the indexes itself
+        } else if (op.id && !state.people[op.id]) {
+          return;
+        }
 
         // Record a CLEANED entry, not the op as sent.
         //

@@ -65,8 +65,11 @@ module.exports = function ({ describe, ok, eq }) {
        'the rejected person is absent');
     eq(run(a, 'FTChangeLog.count()'), 4, 'four entries to commit');
     // Two wives for one man, each with her own partnership and no children.
-    eq(run(a, "partnersOf('p2').map(function(x){return state.people[x.other].name;})"),
-       ['علا', 'فاطمة'], 'both wives of the same man are present');
+    // Asserted as a delta: p2 may already have wives in the committed data, and
+    // the suite must not go red because the real tree gained one.
+    const wives = run(a, "partnersOf('p2').map(function(x){return state.people[x.other].name;})");
+    ok(wives.indexOf('علا') !== -1 && wives.indexOf('فاطمة') !== -1,
+       'both approved wives of the same man are present', JSON.stringify(wives));
     eq(run(a, "(childIndex()['p2']||[]).length"), 1, 'his pre-existing child count is unchanged');
     eq(invariants(a), [], 'invariants hold at the end');
   });
@@ -129,10 +132,15 @@ module.exports = function ({ describe, ok, eq }) {
     // Run for EVERY op kind. An earlier version of this test used add_wife only,
     // which self-heals because applyOp refuses an id that already exists — so it
     // passed while `rename` silently appended its entry a second time.
+    // The rename's `to` is derived from p2's CURRENT name rather than written out,
+    // so it cannot accidentally equal it — applyOp refuses a no-op rename, which
+    // would have made this test pass for the wrong reason if the live data ever
+    // happened to hold the literal value.
+    const p2Name = run(boot({ role: 'admin' }), "state.people['p2'].name");
     const kinds = [
       ['add_wife',      { op: 'add_wife', target: 'p2', id: 'pD1', name: 'ع', describe: '+ ع' }],
       ['add_child',     { op: 'add_child', target: 'p2', id: 'pD2', name: 'ز', describe: '+ ز' }],
-      ['rename',        { op: 'rename', target: 'p2', from: 'عساف', to: 'عساف الجديد', describe: '~ x' }],
+      ['rename',        { op: 'rename', target: 'p2', from: p2Name, to: p2Name + ' (مُعدَّل)', describe: '~ x' }],
     ];
     for (const [label, op] of kinds) {
       const a = boot({ role: 'admin' });
@@ -244,6 +252,96 @@ module.exports = function ({ describe, ok, eq }) {
     eq(run(a, 'FTReview.approve(' + JSON.stringify(r) + ')'), 0,
        'nothing is recorded when the ops are no longer applied');
     eq(run(a, 'FTChangeLog.count()'), 0, 'the changelog stays empty');
+  });
+
+  describe('a proposed deletion is VISIBLE during preview', () => {
+    // The bug: applyOp deleted the person, and preview() then reveals, highlights
+    // and frames by looking each touched id up in state.people — so all three
+    // silently skipped, no node was highlighted, and the empty frame made
+    // fitToNodes fall back to the whole visible tree, zooming OUT. A deletion was
+    // the only op you could not see, and the only one you must see first.
+    //
+    // Preview now MARKS; approve() performs the delete.
+    const a = boot({ role: 'admin' });
+    // A leaf of our own, so the case does not depend on who is in the live data.
+    const target = run(a, `(function(){
+      var w = state.generateId();
+      state.people[w] = {id:w, name:'ورقة', gender:'female', generation:2};
+      state.partnerships.push({id:state.generatePPId(), partners:['p2', w], children:[]});
+      invalidateCoupleMap(); invalidateChildIndex(); invalidateParentIndex();
+      return w;
+    })()`);
+    ok(run(a, 'canDelete(' + JSON.stringify(target) + ')'), 'the target is deletable');
+
+    const r = row('delvis', [{ op: 'delete_person', target, name: 'ورقة',
+                               describe: '− ورقة (' + target + ')' }]);
+    const res = run(a, 'FTReview.preview(' + JSON.stringify(r) + ')');
+    eq(res.failed, [], 'the op is accepted');
+    eq(res.touched, [target], 'the target counts as touched, so it gets revealed');
+
+    ok(run(a, '!!state.people[' + JSON.stringify(target) + ']'),
+       'still present during preview — marked, not removed');
+    ok(run(a, 'state.markedForRemovalIds.has(' + JSON.stringify(target) + ')'),
+       'marked for removal, which is what draws it struck through');
+    ok(run(a, 'state.selectedPathIds.has(' + JSON.stringify(target) + ')'),
+       'highlighted, which is what the reviewer reported missing');
+    ok(run(a, 'state.visibleNodes.has(' + JSON.stringify(target) + ')'),
+       'revealed even if it sat in a collapsed branch');
+    ok(run(a, '!!state.layout[' + JSON.stringify(target) + ']'),
+       'has coordinates, so the view frames the change instead of zooming out');
+    eq(run(a, 'FTChangeLog.count()'), 0, 'a preview still records nothing');
+    eq(invariants(a), [], 'invariants hold during preview');
+
+    // And approve performs it for real.
+    const before = run(a, 'Object.keys(state.people).length');
+    eq(run(a, 'FTReview.approve(' + JSON.stringify(r) + ')'), 1, 'one entry recorded');
+    ok(!run(a, '!!state.people[' + JSON.stringify(target) + ']'), 'gone after approval');
+    eq(run(a, 'Object.keys(state.people).length'), before - 1, 'exactly one person removed');
+    eq(run(a, 'state.markedForRemovalIds.size'), 0, 'the mark is cleared');
+    ok(!run(a, `state.partnerships.some(function(p){
+         return p.partners.indexOf(${JSON.stringify(target)}) !== -1 ||
+                p.children.indexOf(${JSON.stringify(target)}) !== -1; })`),
+       'no dangling reference is left behind');
+    eq(invariants(a), [], 'invariants hold after approval');
+  });
+
+  describe('dismissing a proposed deletion removes nobody', () => {
+    const a = boot({ role: 'admin' });
+    const target = run(a, `(function(){
+      var w = state.generateId();
+      state.people[w] = {id:w, name:'باقية', gender:'female', generation:2};
+      state.partnerships.push({id:state.generatePPId(), partners:['p3', w], children:[]});
+      invalidateCoupleMap(); invalidateChildIndex(); invalidateParentIndex();
+      return w;
+    })()`);
+    const before = run(a, 'Object.keys(state.people).length');
+    const r = row('deldis', [{ op: 'delete_person', target, name: 'باقية', describe: '− باقية' }]);
+    run(a, 'FTReview.preview(' + JSON.stringify(r) + ')');
+    run(a, 'FTReview.dismiss()');
+
+    ok(run(a, '!!state.people[' + JSON.stringify(target) + ']'), 'still there after dismiss');
+    eq(run(a, 'Object.keys(state.people).length'), before, 'nobody was removed');
+    // Marks are not part of the undo snapshot, so dismiss must clear them or the
+    // node stays drawn struck-through forever.
+    eq(run(a, 'state.markedForRemovalIds.size'), 0, 'the mark is cleared, not left drawn');
+    eq(run(a, 'FTChangeLog.count()'), 0, 'nothing recorded');
+    eq(invariants(a), [], 'invariants hold');
+  });
+
+  describe('an undeletable target is refused with a reason', () => {
+    // The proposer saw a leaf; by review time they may have children. Saying only
+    // "cannot delete" would leave the reviewer guessing.
+    const a = boot({ role: 'admin' });
+    const r = row('delbad', [{ op: 'delete_person', target: 'p2', describe: '− p2' }]);
+    const res = run(a, 'FTReview.preview(' + JSON.stringify(r) + ')');
+    eq(res.touched, [], 'nothing is marked');
+    eq(res.failed.length, 1, 'the op is reported as failed');
+    ok(/ابن|أبناء|جذر/.test(res.failed[0]), 'the reason is named', res.failed[0]);
+    ok(run(a, "!!state.people['p2']"), 'the person is untouched');
+    eq(run(a, 'state.markedForRemovalIds.size'), 0, 'nothing marked for removal');
+    // Approving a proposal whose only op was refused must record nothing.
+    eq(run(a, 'FTReview.approve(' + JSON.stringify(r) + ')'), 0, 'nothing recorded');
+    eq(invariants(a), [], 'invariants hold');
   });
 
   describe('crafted proposals cannot break the domain rules', () => {

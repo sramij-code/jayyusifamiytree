@@ -53,6 +53,13 @@ module.exports = function ({ describe, ok, eq }) {
 
   describe('polygyny is representable', () => {
     const c = boot({ role: 'admin' });
+    // RELATIVE to whatever the live data holds, never an absolute count.
+    //
+    // This asserted "p2 has exactly 3 wives" and went red the moment a real wife
+    // was committed to data/family.js — the suite failing because the family tree
+    // was edited, which is the one thing it must tolerate. Every assertion about
+    // a specific person has to be a delta.
+    const before = run(c, "partnersOf('p2').length");
     run(c, `
       ['أ','ب','ج'].forEach(function(n){
         var w = state.generateId();
@@ -61,12 +68,13 @@ module.exports = function ({ describe, ok, eq }) {
       });
       invalidateCoupleMap(); invalidateChildIndex(); invalidateParentIndex();
     `);
-    eq(run(c, "partnersOf('p2').length"), 3, 'all three wives are retained');
+    eq(run(c, "partnersOf('p2').length"), before + 3, 'all three added wives are retained');
     // The map used to keep only the last, so the pairing became asymmetric.
-    eq(run(c, "partnersOf('p2').map(function(x){return areSpouses('p2',x.other) && areSpouses(x.other,'p2');})"),
-       [true, true, true], 'areSpouses is symmetric for every wife');
-    eq(run(c, "partnersOf('p2').map(function(x){return partnersOf(x.other).length;})"),
-       [1, 1, 1], 'each wife points back at exactly one husband');
+    const sym = run(c, "partnersOf('p2').map(function(x){return areSpouses('p2',x.other) && areSpouses(x.other,'p2');})");
+    ok(sym.length === before + 3 && sym.every(Boolean),
+       'areSpouses is symmetric for every wife', JSON.stringify(sym));
+    const back = run(c, "partnersOf('p2').map(function(x){return partnersOf(x.other).length;})");
+    ok(back.every(n => n === 1), 'each wife points back at exactly one husband', JSON.stringify(back));
     eq(invariants(c), [], 'invariants hold');
   });
 

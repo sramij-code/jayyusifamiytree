@@ -201,6 +201,32 @@ module.exports = function ({ describe, ok, eq }) {
     ok(weird.length === 0, 'all person ids match p[0-9a-z]+', weird.slice(0, 5).join(', '));
   });
 
+  describe('both node class builders honour markedForRemovalIds', () => {
+    // The suite cannot see rendering, so this is checked structurally. render.js
+    // builds the class list TWICE — once for entering nodes and once for the
+    // update path — and a proposed deletion targets someone typically already on
+    // screen, so missing it on the update path means the struck-through style
+    // never appears for exactly the case it exists for.
+    const src = read('assets/js/core/render.js');
+    const builders = [];
+    let at = src.indexOf("let cls = 'node-group';");
+    while (at !== -1) {
+      const end = src.indexOf('return cls;', at);
+      builders.push(src.slice(at, end === -1 ? src.length : end));
+      at = src.indexOf("let cls = 'node-group';", at + 1);
+    }
+    ok(builders.length === 2, 'found both class builders (got ' + builders.length + ')');
+    builders.forEach((b, i) => {
+      ok(/markedForRemovalIds/.test(b),
+         'class builder ' + (i + 1) + ' applies node-marked-removal');
+    });
+
+    // And the style has to exist, or the class is inert.
+    const css = read('assets/css/admin.css');
+    ok(/\.node-marked-removal\s+\.node-rect/.test(css),
+       'admin.css styles the marked node');
+  });
+
   describe('every tree mutation in edit.js is gated on the preview', () => {
     // A preview must be exclusive: dismiss() restores by popping the undo stack,
     // so any OTHER pushUndo while a preview is live puts a newer snapshot on top

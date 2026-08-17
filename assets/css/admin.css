@@ -568,6 +568,26 @@ body:not(.admin-mode) #app { padding-top: 0; }
   border-radius: 6px; padding: 6px 9px; margin: 6px 0 2px;
 }
 
+/* A node a previewed proposal would DELETE. Styled here rather than in base.css
+   because only admin's review drawer can ever set the class, though core/render.js
+   emits it unconditionally — the same arrangement as the rest of the shared
+   renderer.
+
+   Deliberately not just dimmed: dimming reads as "collapsed" or "inactive" in
+   this tree, and the reviewer has to be able to tell "about to be removed" from
+   "already gone". Red dashed outline plus a struck-through label says it once. */
+.node-marked-removal .node-rect {
+  stroke: #dc2626;
+  stroke-width: 2.5;
+  stroke-dasharray: 5 3;
+  fill: rgba(220, 38, 38, 0.08);
+}
+.node-marked-removal .node-text,
+.node-marked-removal .node-sub-text {
+  fill: #991b1b;
+  text-decoration: line-through;
+}
+
 /* A history row is context, not a queue item, so it never competes with the
    pending cards above it. */
 .review-card.in-history { opacity: .72; }

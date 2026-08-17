@@ -221,15 +221,57 @@ function descendantCount(personId) {
   return n;
 }
 
+// state.people is a plain object, so state.people[id] also resolves INHERITED
+// names: 'toString' and 'constructor' come back as functions and '__proto__'
+// comes back as Object.prototype. All of them are truthy, so a `!p` guard passes
+// and the caller believes it found a person.
+//
+// Reachable, not theoretical: the Supabase publishable key ships to every
+// visitor, so a crafted proposal can name any of these as its target, and
+// FTReview.applyOp runs at PREVIEW time, before anyone approves anything.
+// Measured, each on the real data:
+//
+//   rename '__proto__'      -> assigned Object.prototype.name, so every object
+//                              in the page inherited it and every for...in
+//                              gained a key (theme.js iterates a map that way)
+//   add_* target '__proto__'-> stored a person with generation NaN; layout.js
+//                              computes row positions straight off it
+//   delete_person 'toString'-> returned success, recording a changelog entry for
+//                              a person that never existed, which then gets
+//                              committed to data/changes.jsonl
+//
+// An own-property check is the whole fix. Use getPerson/personExists for any id
+// that did not come from a click on an existing node.
+function personExists(personId) {
+  return typeof personId === 'string' &&
+         Object.prototype.hasOwnProperty.call(state.people, personId);
+}
+
+function getPerson(personId) {
+  return personExists(personId) ? state.people[personId] : null;
+}
+
+// Ids we are willing to CREATE. Assignment has its own hazard: writing
+// state.people['__proto__'] = {...} replaces the object's prototype instead of
+// adding a key, so the person silently does not exist. Requiring the 'p' prefix
+// every real id already has refuses that and every other inherited name at once.
+//
+// Case-insensitive on purpose. generateId() only ever emits lowercase, but case
+// is irrelevant to the hazard — '__proto__' and 'toString' fail the prefix
+// either way — and pinning it would reject ids for a reason unrelated to safety.
+function isValidNewId(id) {
+  return typeof id === 'string' && /^p[0-9a-z]+$/i.test(id) && id.length <= 40;
+}
+
 // Rules 2 and 3: women are terminal. Nothing extends from a wife or a daughter.
 function isTerminal(personId) {
-  const p = state.people[personId];
+  const p = getPerson(personId);
   return !!p && p.gender === 'female';
 }
 
 function hasFather(personId) {
   const idx = parentIndex();
-  return !!idx[personId];
+  return !!(personExists(personId) && idx[personId]);
 }
 
 // -----------------------------------------------------------------------------
@@ -252,7 +294,7 @@ function hasFather(personId) {
 // rather than a boolean so the UI can say what is wrong instead of just
 // disabling a button.
 function deleteBlockedReason(personId) {
-  const p = state.people[personId];
+  const p = getPerson(personId);
   if (!p) return 'لا يوجد';
   // state.root is never assigned by initState — only read, with a fallback, by
   // the publish paths — so check the loaded data directly rather than trusting

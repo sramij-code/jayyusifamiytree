@@ -16,6 +16,17 @@
 // 9. MODAL — ADD RELATIVE
 // =============================================================================
 
+// True while admin.html is showing a proposal preview.
+//
+// Editing during a preview corrupted both: dismiss() restores by popping the
+// undo stack, so an edit made on top of a preview put a newer snapshot there and
+// dismiss undid the EDIT, leaving the unapproved proposal applied — and already
+// written into the draft by that edit's saveDraft. Refusing keeps a preview a
+// pure inspection, which is what makes dismiss correct.
+function previewIsLive() {
+  return typeof FTReview !== 'undefined' && !!FTReview.previewing();
+}
+
 function initModal() {
   document.getElementById('modal-overlay').addEventListener('click', (e) => {
     if (e.target === document.getElementById('modal-overlay')) closeModal();
@@ -41,6 +52,7 @@ function openModal(personId) {
   // Same guard as startEditName: the add button is CSS-hidden outside propose
   // mode, but nothing should depend on CSS to stay read-only.
   if (typeof FTPropose !== 'undefined' && !FTPropose.isOn()) return;
+  if (previewIsLive()) return;
 
   // Layer 2 of the guard: even if the button were somehow clickable.
   if (isTerminal(personId)) return;
@@ -83,9 +95,17 @@ const RELATIONS = {
   father:   { kind: 'parent',  gender: 'male',   dGen: -1 },
 };
 
+// Small helper so the guard below reads as a rule rather than an index lookup.
+function targetPersonGeneration(id) {
+  const p = state.people[id];
+  return p ? p.generation : 0;
+}
+
 function saveRelative() {
   const targetId = state._modalTargetId;
   if (!targetId) return;
+  // The modal may already have been open when the preview started.
+  if (previewIsLive()) { closeModal(); return; }
 
   // Layer 3 of the guard.
   if (isTerminal(targetId)) { closeModal(); return; }
@@ -96,6 +116,9 @@ function saveRelative() {
   const rel = RELATIONS[document.getElementById('modal-relation').value];
   if (!rel) return;
   if (rel.kind === 'parent' && hasFather(targetId)) { closeModal(); return; }
+  // Above the root there is no row: generation would be -1, which layout.js
+  // turns into an off-screen row and an undefined generation colour.
+  if (rel.kind === 'parent' && targetPersonGeneration(targetId) <= 0) { closeModal(); return; }
 
   const targetPerson = state.people[targetId];
   const newId  = state.generateId();
@@ -195,6 +218,7 @@ function resetDeleteArm() {
 
 function requestDeletePerson(personId) {
   if (typeof FTPropose !== 'undefined' && !FTPropose.isOn()) return;
+  if (previewIsLive()) return;
   if (!personId || !canDelete(personId)) return;
 
   const btn = document.getElementById('btn-delete-person');
@@ -237,6 +261,7 @@ function startEditName(personId) {
   // read-only must read as read-only. admin.html has no FTPropose, and there
   // editing is always on.
   if (typeof FTPropose !== 'undefined' && !FTPropose.isOn()) return;
+  if (previewIsLive()) return;
 
   const person = state.people[personId];
   if (!person) return;
@@ -272,7 +297,15 @@ function startEditName(personId) {
     const newName = input.value.trim();
     // A blur with the name unchanged is the common case — closing the editor
     // by clicking away. Only an actual change is worth a changelog line.
-    if (newName && newName !== person.name) {
+    //
+    // The previewIsLive check removes a dependency on event ordering rather than
+    // closing a live hole. Today the hazard is unreachable: starting a preview
+    // requires a click, which blurs the input first, so commit() always lands
+    // before the preview exists. But this closure pushes an undo snapshot, and a
+    // snapshot pushed while a preview is live is exactly what made dismiss() pop
+    // the wrong one — so it should not be safe by accident of timing. A keyboard
+    // shortcut or an auto-preview would reopen it.
+    if (newName && newName !== person.name && !previewIsLive()) {
       const oldName = person.name;
       FTChangeLog.pushUndo('rename ' + oldName);
       state.people[personId].name = newName;

@@ -10,12 +10,26 @@ GitHub Pages site (`.nojekyll`, no build step).
 
 ## Running it
 
-There is no build, no package manager, no test suite, and no lint config. Open the HTML directly or
-serve the directory:
+There is no build, no package manager and no lint config. Open the HTML directly or serve the
+directory:
 
 ```sh
 python3 -m http.server 8000    # then http://localhost:8000/index.html
 ```
+
+## Verification
+
+```sh
+node tools/test/run.js          # 210 checks, exit 1 on any failure
+node tools/test/run.js mobile   # one suite
+```
+
+Four suites — `static`, `domain`, `proposals`, `mobile` — with no dependencies, run in a Node vm
+against the real data. See `tools/test/README.md`. The oracle is `invariants(ctx)`: assert it after
+every mutation.
+
+It cannot see rendering. Anything depending on font metrics or real layout still needs a device, and
+the GitHub and Supabase paths are stubbed, so changes there need one manual run.
 
 All JS is loaded as **classic scripts, not ES modules** — this is deliberate, so the site also works
 over `file://`. Do not introduce `import`/`export` in `assets/js/**` without also accepting the loss
@@ -55,6 +69,45 @@ browser download; a human then replaces the repo file and commits.
 
 `isDirty()` compares the local draft against `window.FT_THEME` (the committed theme), which is what
 drives the `● UNPUBLISHED CHANGES` indicator.
+
+`COMMIT TO MAIN` (`assets/js/admin/github.js`) is the exception: it writes to the repo directly via
+the Git Data API. It commits up to three files in **one** commit, and which ones depends on what
+changed:
+
+| file | written when |
+| --- | --- |
+| `data/family.js` + `data/changes.jsonl` | there are changelog entries — always together |
+| `data/proposals-reviewed.json` | there are uncommitted review decisions |
+
+**Review decisions are a second, independent axis of "unpublished work."** Rejecting a proposal
+mutates no tree and produces no changelog entry, so anything that gates publishing on
+`FTChangeLog.count()` alone makes rejections unpublishable — which is exactly why they used to live
+only in `localStorage` and reappeared as pending on every other device. Three places must therefore
+count both: `markFamilyDirty()` (the indicator and the COMMIT button), `commitFamily()`, and
+`FTGitHub.publish()`.
+
+### Proposal decisions (`data/proposals-reviewed.json`)
+
+```json
+{ "version": 1,
+  "decisions": [ { "id": "<proposal uuid>", "decision": "rejected" | "reinstated",
+                   "at": "<ISO>", "note": null, "by": "admin" } ] }
+```
+
+Append-only, and **the latest decision for an id wins.** Reinstating a proposal appends
+`reinstated` rather than deleting the rejection, so "turned down, then changed my mind" stays legible
+in git. Ordering is by `at`, never by position in the array — the file is committed JSON that a human
+can hand-edit and git can merge. `decisionKey()` includes the decision, not just `id@at`, because a
+reject followed immediately by a reinstate can share a millisecond.
+
+A decision is **local until committed** (`FTReview.uncommitted()`); the drawer says
+`بانتظار COMMIT` versus `محفوظ في المستودع` rather than implying every rejection is durable.
+`markCommitted()` flags local entries instead of deleting them, because the committed file is served
+over HTTP and lags the commit by minutes — deleting would make a decision vanish from the UI in
+between. Approval still outranks any decision, since approved ops are a fact about `data/family.js`.
+
+The history list is capped (`HISTORY_PAGE`, 20) and pages with المزيد. The Supabase inbox only ever
+grows, so an uncapped list would eventually render every proposal ever sent on every refresh.
 
 ## Data model
 

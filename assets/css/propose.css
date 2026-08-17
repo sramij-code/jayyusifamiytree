@@ -41,10 +41,10 @@ body.propose-mode .pb-note { display: inline !important; }
    under body.propose-mode left the bar overlaying the top of the canvas in the
    default read-only view, hiding #btn-reset-view at top:16px behind it.
 
-   42px = the toggle's 32px min-height plus the bar's 5px top and bottom
-   padding. The bar keeps one row in both modes on a wide screen, so one value
-   covers both. */
-#app { padding-top: calc(42px + env(safe-area-inset-top)); }
+   43px = the toggle's 32px min-height, the bar's 5px top and bottom padding,
+   and its 1px border-bottom. The bar keeps one row in both modes on a wide
+   screen, so one value covers both. */
+#app { padding-top: calc(43px + env(safe-area-inset-top)); }
 
 #propose-toggle {
   font-family: var(--arabic);
@@ -293,7 +293,12 @@ body.propose-mode #propose-toggle {
   /* Propose mode adds the identity chip, status and two buttons, which wrap to
      a second row at this width. */
   body.propose-mode #app { padding-top: calc(84px + env(safe-area-inset-top)); }
-  .pb-note { display: none !important; }
+  /* Must out-specify `body.propose-mode .pb-note` near the top of this file,
+     which is (0,2,1) !important. A bare `.pb-note` at (0,1,0) lost that tie
+     regardless of source order, so the note leaked onto a THIRD row at 375px —
+     taking the bar to 103px against the 84px reserved below and covering the top
+     of #btn-reset-view. */
+  body.propose-mode .pb-note { display: none !important; }
   /* base.css adds env(safe-area-inset-top) to this button's own `top`, which was
      right when nothing above it reserved space. #app's padding now includes that
      inset, and the button is absolute inside the padded container — so keeping it

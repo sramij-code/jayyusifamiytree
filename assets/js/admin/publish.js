@@ -46,12 +46,21 @@ function markDirty() {
 function markFamilyDirty() {
   const n = typeof FTChangeLog === 'undefined' ? 0 : FTChangeLog.count();
 
+  // Review decisions are the second thing a commit can carry, and the only one
+  // for a session spent turning proposals down. Counting only edits left COMMIT
+  // disabled after a rejection, so the decision stayed in this browser and the
+  // proposal came back as pending on every other device.
+  const d = typeof FTReview === 'undefined' ? 0 : FTReview.uncommitted().length;
+
   const el = document.getElementById('family-state');
   if (el) {
-    el.textContent = n === 0
+    const bits = [];
+    if (n) bits.push(n + (n === 1 ? ' EDIT' : ' EDITS'));
+    if (d) bits.push(d + (d === 1 ? ' DECISION' : ' DECISIONS'));
+    el.textContent = bits.length === 0
       ? '○ TREE IN SYNC'
-      : '● ' + n + (n === 1 ? ' EDIT' : ' EDITS') + ' UNPUBLISHED';
-    el.className = n === 0 ? '' : 'dirty';
+      : '● ' + bits.join(' + ') + ' UNPUBLISHED';
+    el.className = bits.length === 0 ? '' : 'dirty';
   }
 
   const commitBtn = document.getElementById('btn-commit-family');
@@ -62,7 +71,7 @@ function markFamilyDirty() {
       : 'CONNECT GITHUB …';
     // Without a token the button's job is to collect one, so it stays live
     // even with nothing to publish.
-    commitBtn.disabled = connected && n === 0;
+    commitBtn.disabled = connected && n === 0 && d === 0;
   }
 
   const discardBtn = document.getElementById('btn-discard-family');
@@ -81,6 +90,20 @@ function markFamilyDirty() {
 // Session undo. Restores the snapshot taken before the last edit and drops the
 // changelog entries that edit added.
 function undoEdit() {
+  // While a proposal preview is live, ⌘Z means "back out of this preview" —
+  // that is what the user is looking at, and it is the only snapshot they can
+  // coherently undo.
+  //
+  // Undoing past it left `previewing` set with the tree already restored, and
+  // approve() then recorded entries for edits no longer present: changes.jsonl
+  // asserting people family.js lacks, with fromProposal marking the proposal
+  // applied forever so it could never be reviewed again.
+  if (typeof FTReview !== 'undefined' && FTReview.previewing()) {
+    FTReview.dismiss();
+    markFamilyDirty();
+    setFamilyStatus('أُلغيت المعاينة');
+    return;
+  }
   if (!FTChangeLog.undo()) return;
   render(true);
   renderSearchResults(
@@ -285,7 +308,13 @@ function previewBlockingPublish() {
 
 async function commitFamily() {
   if (!FTGitHub.hasToken()) { openTokenModal(); return; }
-  if (FTChangeLog.count() === 0) return;
+
+  // Two independent reasons to commit. Testing only the changelog here blocked a
+  // rejection-only commit in the UI even once github.js allowed it, so a decision
+  // still could not leave the browser.
+  const edits = FTChangeLog.count();
+  const decisions = typeof FTReview === 'undefined' ? 0 : FTReview.uncommitted().length;
+  if (edits === 0 && decisions === 0) return;
 
   if (previewBlockingPublish()) {
     setFamilyStatus('✕ اعتمد أو ألغِ المعاينة أولاً · a proposal preview is live', 'dirty');
@@ -298,12 +327,22 @@ async function commitFamily() {
   try {
     const r = await FTGitHub.publish(msg => setFamilyStatus('· ' + msg));
     // Only now is the work safely off this device, so only now is it safe to
-    // drop the draft that was protecting it.
-    FTChangeLog.clearLog();
-    FTChangeLog.clearDraft();
+    // drop the draft that was protecting it. Guarded on there having BEEN edits:
+    // a rejection-only commit must not clear a draft it never published.
+    // FTGitHub.publish has already flagged the decisions as committed.
+    if (edits > 0) {
+      FTChangeLog.clearLog();
+      FTChangeLog.clearDraft();
+    }
     // Before the status, which markFamilyDirty would otherwise overwrite.
     markFamilyDirty();
-    setFamilyStatus('✓ committed ' + r.count + ' to ' + r.branch + ' · ' + r.sha.slice(0, 7));
+    if (typeof renderReviewList === 'function' && FTReview.all().length) renderReviewList();
+
+    const what = [];
+    if (r.count) what.push(r.count + (r.count === 1 ? ' edit' : ' edits'));
+    if (r.decisions) what.push(r.decisions + (r.decisions === 1 ? ' decision' : ' decisions'));
+    setFamilyStatus('✓ committed ' + what.join(' + ') + ' to ' + r.branch +
+                    ' · ' + r.sha.slice(0, 7));
   } catch (e) {
     // The draft and log are deliberately untouched on failure — a network
     // blip must not cost the edits.

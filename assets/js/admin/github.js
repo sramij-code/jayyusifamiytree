@@ -22,10 +22,21 @@
 
    Do not enter it on a shared or untrusted machine.
 
-   Two files must land in ONE commit, or a crash between two calls leaves the
-   tree and its changelog describing different things. The contents API writes
-   one file per call, so this uses the lower-level Git Data API: blobs -> tree
-   -> commit -> move the ref. More calls, but atomic.
+   Files must land in ONE commit, or a crash between two calls leaves the tree
+   and its changelog describing different things. The contents API writes one
+   file per call, so this uses the lower-level Git Data API: blobs -> tree ->
+   commit -> move the ref. More calls, but atomic.
+
+   Three files, and which of them are written depends on what changed:
+
+     data/family.js               the tree            } together, or not at all
+     data/changes.jsonl           what changed in it  }
+     data/proposals-reviewed.json review decisions      independently
+
+   Review decisions are their own axis because turning a proposal DOWN changes no
+   tree and produces no changelog entry. That is why rejections used to be
+   unpublishable — this refused to commit with an empty changelog, so a rejection
+   never left the browser and reappeared as pending on any other device.
 ============================================================================ */
 
 // A lost race for the branch tip, as opposed to a real failure. GitHub answers
@@ -49,8 +60,9 @@ var FTGitHub = window.FTGitHub = (function () {
   const API    = 'https://api.github.com';
   const TOKEN_KEY = 'ftGitHubToken';
 
-  const FAMILY_PATH = 'data/family.js';
-  const LOG_PATH    = 'data/changes.jsonl';
+  const FAMILY_PATH   = 'data/family.js';
+  const LOG_PATH      = 'data/changes.jsonl';
+  const REVIEWED_PATH = 'data/proposals-reviewed.json';
 
   function token() {
     try { return localStorage.getItem(TOKEN_KEY) || ''; } catch (e) { return ''; }
@@ -147,6 +159,48 @@ var FTGitHub = window.FTGitHub = (function () {
     }
   }
 
+  // The committed decisions, needed before writing so the file stays append-only
+  // across publishes. Absent on the first one, which is not an error.
+  async function fetchExistingReviewed() {
+    try {
+      const r = await api('/repos/' + OWNER + '/' + REPO + '/contents/' +
+                          REVIEWED_PATH + '?ref=' + BRANCH, { method: 'GET' });
+      const doc = JSON.parse(base64ToUtf8(r.content));
+      return Array.isArray(doc.decisions) ? doc.decisions : [];
+    } catch (e) {
+      return [];   // 404 on first publish, or a hand-edit we should not clobber
+    }
+  }
+
+  // The commit subject has to describe whichever axis actually changed, or a
+  // rejection-only commit reads as "Update family data" and the log lies about
+  // what happened.
+  function commitMessageFor(edits, decisions) {
+    const rejected  = decisions.filter(d => d.decision === 'rejected').length;
+    const reinstated = decisions.filter(d => d.decision === 'reinstated').length;
+
+    const parts = [];
+    if (rejected)   parts.push(rejected + (rejected === 1 ? ' rejection' : ' rejections'));
+    if (reinstated) parts.push(reinstated + (reinstated === 1 ? ' reinstatement' : ' reinstatements'));
+    const decisionText = parts.join(' and ');
+
+    if (edits === 0) {
+      // The ids, so the commit is self-describing without opening the JSON. Not
+      // the notes: they are free text from the reviewer and belong in the file,
+      // not in a subject line that tooling parses.
+      const body = decisions
+        .map(d => '  ' + (d.decision === 'rejected' ? '✕' : '↺') + ' ' + d.id)
+        .join('\n');
+      return 'Record ' + decisionText + '\n\n' + body + '\n\nPublished from admin.html';
+    }
+
+    const msg = FTChangeLog.commitMessage();
+    if (!decisionText) return msg;
+    // Append rather than rebuild, so the edit description stays the subject.
+    return msg.replace(/\n\nPublished from admin\.html$/,
+                       '\n\nAlso recorded ' + decisionText + '\n\nPublished from admin.html');
+  }
+
   function familyFileBody() {
     const out = {
       people: state.people,
@@ -202,7 +256,15 @@ var FTGitHub = window.FTGitHub = (function () {
     publish: async function (progress) {
       const say = progress || function () {};
       if (!token()) throw new Error('No GitHub token set.');
-      if (FTChangeLog.count() === 0) throw new Error('No changes to publish.');
+
+      // Either axis alone is a reason to commit. Requiring a changelog entry is
+      // what made rejections unpublishable.
+      const edits = FTChangeLog.count();
+      const pendingDecisions =
+        typeof FTReview !== 'undefined' ? FTReview.uncommitted() : [];
+      if (edits === 0 && pendingDecisions.length === 0) {
+        throw new Error('No changes to publish.');
+      }
 
       const base = '/repos/' + OWNER + '/' + REPO;
       const ATTEMPTS = 4;
@@ -235,39 +297,51 @@ var FTGitHub = window.FTGitHub = (function () {
         const headSha = ref.object.sha;
         const headCommit = await api(base + '/git/commits/' + headSha, { method: 'GET' });
 
-        // Inside the loop deliberately: see the note above about changes.jsonl.
-        say('reading changelog…');
-        const existing = await fetchExistingLog();
-        const appended = (existing ? existing.replace(/\n*$/, '\n') : '') +
-                         FTChangeLog.toJSONL() + '\n';
-
+        // Both append-only files are re-read inside the loop, for the same
+        // reason: the commit we lost the race to may have appended to either,
+        // and reusing a stale copy would silently drop its lines.
         say('uploading files…');
-        const familyBlob = await api(base + '/git/blobs', {
-          method: 'POST',
-          body: JSON.stringify({ content: utf8ToBase64(familyFileBody()), encoding: 'base64' }),
-        });
-        const logBlob = await api(base + '/git/blobs', {
-          method: 'POST',
-          body: JSON.stringify({ content: utf8ToBase64(appended), encoding: 'base64' }),
-        });
+        const entries = [];
+
+        if (edits > 0) {
+          const existing = await fetchExistingLog();
+          const appended = (existing ? existing.replace(/\n*$/, '\n') : '') +
+                           FTChangeLog.toJSONL() + '\n';
+          const familyBlob = await api(base + '/git/blobs', {
+            method: 'POST',
+            body: JSON.stringify({ content: utf8ToBase64(familyFileBody()), encoding: 'base64' }),
+          });
+          const logBlob = await api(base + '/git/blobs', {
+            method: 'POST',
+            body: JSON.stringify({ content: utf8ToBase64(appended), encoding: 'base64' }),
+          });
+          // Never one without the other: a tree whose changelog does not describe
+          // it is worse than either file being a commit behind.
+          entries.push({ path: FAMILY_PATH, mode: '100644', type: 'blob', sha: familyBlob.sha });
+          entries.push({ path: LOG_PATH,    mode: '100644', type: 'blob', sha: logBlob.sha });
+        }
+
+        if (pendingDecisions.length > 0) {
+          const committedNow = await fetchExistingReviewed();
+          const body = FTReview.reviewedFileBody(committedNow);
+          const reviewedBlob = await api(base + '/git/blobs', {
+            method: 'POST',
+            body: JSON.stringify({ content: utf8ToBase64(body), encoding: 'base64' }),
+          });
+          entries.push({ path: REVIEWED_PATH, mode: '100644', type: 'blob', sha: reviewedBlob.sha });
+        }
 
         say('building commit…');
         // base_tree keeps every other file in the repo untouched.
         const tree = await api(base + '/git/trees', {
           method: 'POST',
-          body: JSON.stringify({
-            base_tree: headCommit.tree.sha,
-            tree: [
-              { path: FAMILY_PATH, mode: '100644', type: 'blob', sha: familyBlob.sha },
-              { path: LOG_PATH,    mode: '100644', type: 'blob', sha: logBlob.sha },
-            ],
-          }),
+          body: JSON.stringify({ base_tree: headCommit.tree.sha, tree: entries }),
         });
 
         const commit = await api(base + '/git/commits', {
           method: 'POST',
           body: JSON.stringify({
-            message: FTChangeLog.commitMessage(),
+            message: commitMessageFor(edits, pendingDecisions),
             tree: tree.sha,
             parents: [headSha],
           }),
@@ -293,7 +367,12 @@ var FTGitHub = window.FTGitHub = (function () {
           throw e;
         }
 
-        return { sha: commit.sha, count: FTChangeLog.count(), branch: BRANCH, attempts: attempt };
+        // Only after the ref moved: until then nothing is durable, and flagging
+        // early would leave a decision looking committed when it was not.
+        if (pendingDecisions.length > 0) FTReview.markCommitted(pendingDecisions);
+
+        return { sha: commit.sha, count: edits, decisions: pendingDecisions.length,
+                 branch: BRANCH, attempts: attempt };
       }
     },
   };

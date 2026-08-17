@@ -102,6 +102,47 @@ Consequences to preserve: `dismiss()` must clear the marks explicitly (nothing w
 undo snapshot does not cover them), and `approve()` re-checks with `deletePerson` rather than trusting
 the mark, since a ⌘Z or an admin edit can invalidate it between marking and approving.
 
+### Proposal status is derived, on BOTH sides
+
+`assets/js/proposal-status.js` (`FTProposalStatus`) is loaded by `index.html` and `admin.html`. It
+answers "where does this proposal stand" from the two committed files and nothing else:
+
+```
+approved -> data/changes.jsonl has a line with fromProposal: <id>
+declined -> latest decision for <id> in data/proposals-reviewed.json is 'rejected'
+pending  -> neither
+```
+
+It exists because the **proposer** needs the same answer the reviewer does. The propose bar used to
+read `FTPropose.sent().length` — a localStorage list nothing ever removes from — so it announced
+`N اقتراحات قيد المراجعة` permanently, including proposals approved months earlier.
+
+Both fetches return an `ok` flag. A failed read makes an approved proposal look pending, i.e. an
+**over-count**: the safe direction, since it prompts a look rather than hiding work. Callers surface
+it (`partial`) instead of presenting a guess as exact. A 404 is *not* a failure — neither file exists
+before the first publish.
+
+`FTPropose.barState()` and `FTReview.buttonState()` both distinguish **four** states, and `clean`/
+`settled` is unreachable without a successful fetch. `FTReview.load()` sets `loadState = 'error'`
+before its first `await` for exactly this reason. Never collapse "could not ask" into "nothing
+pending" — that is the same defect as the publish bar claiming `TREE IN SYNC`.
+
+### Withdrawing a proposal (`withdraws` column)
+
+A proposer cannot delete or edit what they sent: `tools/proposals.sql` grants **insert and select
+only**. So withdrawing is an INSERT of a row whose `withdraws` points at the target. Such a row is not
+a proposal — both UIs filter it out of the list and use it to annotate its target.
+
+**It is a request, never automatic.** There is no login, so `withdraws` is client-asserted: anyone
+could post one against anyone's proposal. Honouring it silently would let any visitor suppress
+someone else's suggestion, so the target stays `pending` and keeps counting on the review button. The
+reviewer decides; a forged withdrawal costs a line on a card.
+
+`FTPropose.mine()` is the union of an `author_node=eq.<me>` query and the local sent-id list, deduped.
+Neither alone suffices: the query survives cleared storage and works across devices but is spoofable
+and misses proposals sent as another node; the local list is exact for this browser but does not
+travel. `author_node` serves display, never ownership.
+
 ### Proposal decisions (`data/proposals-reviewed.json`)
 
 ```json

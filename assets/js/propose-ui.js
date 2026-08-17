@@ -17,7 +17,6 @@ function markProposeState() {
   const on = FTPropose.isOn();
   const n = FTChangeLog.count();
   const me = FTPropose.me();
-  const sent = FTPropose.sent().length;
 
   document.getElementById('propose-toggle').textContent = on
     ? '✕ إنهاء الاقتراح'
@@ -33,16 +32,50 @@ function markProposeState() {
 
   const state_ = document.getElementById('propose-state');
   if (state_) {
-    if (n > 0) {
-      state_.textContent = '● ' + n + (n === 1 ? ' تعديل غير مُرسل' : ' تعديلات غير مُرسلة');
+    // Every string comes from FTPropose.barState(), so the bar cannot claim a
+    // proposal is "قيد المراجعة" merely because it was once sent — which is what
+    // `sent().length` did, permanently, since nothing ever removed from that list.
+    const b = FTPropose.barState();
+    if (b.state === 'unsent') {
+      state_.textContent = '● ' + b.unsent + (b.unsent === 1 ? ' تعديل غير مُرسل' : ' تعديلات غير مُرسلة');
       state_.className = 'dirty';
-    } else if (sent > 0) {
-      state_.textContent = '✓ ' + sent + (sent === 1 ? ' اقتراح قيد المراجعة' : ' اقتراحات قيد المراجعة');
+      state_.title = '';
+    } else if (b.state === 'unknown') {
+      // Something was sent but we have not asked where it stands. Saying "قيد
+      // المراجعة" here would be the old lie.
+      state_.textContent = '… ' + b.everSent + (b.everSent === 1 ? ' اقتراح مُرسل' : ' اقتراحات مُرسلة');
       state_.className = 'sent';
+      state_.title = 'Status not checked yet — open اقتراحاتي to see where they stand.';
+    } else if (b.state === 'pending') {
+      state_.textContent = '✓ ' + b.pending + (b.pending === 1 ? ' اقتراح قيد المراجعة' : ' اقتراحات قيد المراجعة');
+      state_.className = 'sent';
+      state_.title = b.approved + ' approved · ' + b.rejected + ' declined' +
+                     (b.partial ? ' · counts may be high: decision history unreadable' : '');
+    } else if (b.state === 'settled') {
+      state_.textContent = '✓ تمت مراجعة كل اقتراحاتك';
+      state_.className = 'sent';
+      state_.title = b.approved + ' approved · ' + b.rejected + ' declined';
     } else {
       state_.textContent = '';
       state_.className = '';
+      state_.title = '';
     }
+  }
+
+  // Shown once anything has ever been sent, in or out of propose mode: checking
+  // where your suggestions stand should not require entering edit mode.
+  const mineBtn = document.getElementById('btn-my-proposals');
+  if (mineBtn) {
+    const b = FTPropose.barState();
+    const everSent = FTPropose.sent().length ||
+                     (FTPropose.mineState() === 'ok' ? FTPropose.lastMine().length : 0);
+    mineBtn.hidden = everSent === 0;
+    const badge = document.getElementById('mine-badge');
+    if (badge) {
+      badge.textContent = b.pending === null ? '…' : (b.pending > 0 ? String(b.pending) : '✓');
+    }
+    mineBtn.classList.toggle('mine-pending', b.pending > 0);
+    mineBtn.classList.toggle('mine-unknown', b.pending === null);
   }
 
   const send = document.getElementById('btn-propose-send');
@@ -259,4 +292,132 @@ async function doSubmit() {
     err.textContent = e.message;
     btn.disabled = false;
   }
+}
+
+
+// =============================================================================
+// MY PROPOSALS — what I sent, where it stands, and asking for one to be dropped.
+// =============================================================================
+
+function initMineUI() {
+  const btn = document.getElementById('btn-my-proposals');
+  if (!btn) return;
+
+  btn.addEventListener('click', () => {
+    const drawer = document.getElementById('mine-drawer');
+    const opening = !drawer.classList.contains('open');
+    drawer.classList.toggle('open', opening);
+    if (opening) refreshMine();
+  });
+
+  document.getElementById('mine-close').addEventListener('click', () => {
+    document.getElementById('mine-drawer').classList.remove('open');
+  });
+  document.getElementById('mine-refresh').addEventListener('click', refreshMine);
+}
+
+function mineStatus(text, kind) {
+  const el = document.getElementById('mine-status');
+  if (!el) return;
+  el.textContent = text || '';
+  el.className = kind || '';
+}
+
+async function refreshMine() {
+  mineStatus('جارٍ التحميل…');
+  try {
+    await FTPropose.mine();
+    renderMineList();
+    mineStatus('');
+  } catch (e) {
+    // Never fall back to "nothing pending": a failed fetch is unknown, not clean.
+    mineStatus(e.message, 'err');
+  }
+  markProposeState();
+}
+
+function renderMineList() {
+  const list = document.getElementById('mine-list');
+  if (!list) return;
+  list.textContent = '';
+
+  const rows = FTPropose.lastMine();
+  if (rows.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'mine-empty';
+    empty.textContent = 'لم ترسل أي اقتراح بعد';
+    list.appendChild(empty);
+    return;
+  }
+
+  for (const row of rows) list.appendChild(mineCard(row));
+}
+
+function mineCard(row) {
+  const card = document.createElement('div');
+  card.className = 'mine-card state-' + row._state + (row._withdrawn ? ' withdrawn' : '');
+
+  const head = document.createElement('div');
+  head.className = 'mine-head';
+
+  const when = document.createElement('span');
+  when.className = 'mine-when';
+  when.textContent = String(row.created_at || '').slice(0, 10);
+  head.appendChild(when);
+
+  const tag = document.createElement('span');
+  tag.className = 'mine-tag';
+  tag.textContent = row._state === 'approved' ? '✓ اعتُمد'
+                  : row._state === 'rejected' ? '✕ لم يُقبل'
+                  : '● قيد المراجعة';
+  head.appendChild(tag);
+  card.appendChild(head);
+
+  for (const op of (row.ops || [])) {
+    const line = document.createElement('div');
+    line.className = 'mine-op';
+    line.textContent = op.describe || op.op;
+    card.appendChild(line);
+  }
+
+  if (row.note) {
+    const note = document.createElement('div');
+    note.className = 'mine-note';
+    note.textContent = '“' + row.note + '”';
+    card.appendChild(note);
+  }
+
+  if (row._withdrawn) {
+    const w = document.createElement('div');
+    w.className = 'mine-withdrawn';
+    // Deliberately not "cancelled": nothing was removed. The reviewer decides.
+    w.textContent = 'طلبتَ سحب هذا الاقتراح — القرار للمراجع';
+    card.appendChild(w);
+  }
+
+  // Only a pending proposal is worth withdrawing. An approved one is already in
+  // the tree, and a declined one needs nothing.
+  if (row._state === 'pending' && !row._withdrawn) {
+    const actions = document.createElement('div');
+    actions.className = 'mine-actions';
+    const b = document.createElement('button');
+    b.className = 'mine-btn';
+    b.textContent = 'اسحب الاقتراح';
+    b.addEventListener('click', async () => {
+      b.disabled = true;
+      try {
+        await FTPropose.withdraw(row.id);
+        renderMineList();
+        mineStatus('أُرسل طلب السحب — سيظهر للمراجع', 'ok');
+      } catch (e) {
+        b.disabled = false;
+        mineStatus(e.message, 'err');
+      }
+      markProposeState();
+    });
+    actions.appendChild(b);
+    card.appendChild(actions);
+  }
+
+  return card;
 }

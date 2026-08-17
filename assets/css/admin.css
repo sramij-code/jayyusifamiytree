@@ -619,6 +619,15 @@ body:not(.admin-mode) #app { padding-top: 0; }
   text-decoration: line-through;
 }
 
+/* A withdrawal request. Dashed and neutral rather than red: it is the proposer's
+   ASK, not an outcome and not an error. */
+.review-withdrawn {
+  font-family: var(--arabic); font-size: 12px; font-weight: 700;
+  color: #92400e;
+  border: 1px dashed #f59e0b; border-radius: 6px;
+  padding: 5px 9px; margin: 6px 0 2px;
+}
+
 /* Why an op could not be applied. Red rather than the amber used for the
    proposer's note: a note is information, this is an obstacle. */
 .review-failed {

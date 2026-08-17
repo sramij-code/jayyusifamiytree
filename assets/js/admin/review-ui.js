@@ -212,6 +212,21 @@ function reviewCard(row, inHistory) {
     card.appendChild(note);
   }
 
+  // The proposer asked us to drop this one.
+  //
+  // Shown, never acted on automatically. There is no login, so `withdraws` is
+  // client-asserted — honouring it silently would let anyone suppress anyone
+  // else's suggestion. The decision stays with the reviewer, exactly like every
+  // other decision in this system.
+  if (row._withdrawRequest) {
+    const w = document.createElement('div');
+    w.className = 'review-withdrawn';
+    const by = row._withdrawRequest.author_name || 'مجهول';
+    const at = String(row._withdrawRequest.created_at || '').slice(0, 10);
+    w.textContent = '↩ طلب صاحب الاقتراح سحبه · ' + by + ' · ' + at;
+    card.appendChild(w);
+  }
+
   // Why a previewed op could not be applied. Almost always one of two things: the
   // target gained children since the proposal was written, or it is missing from
   // this browser entirely — which a stale draft causes, so name that explicitly

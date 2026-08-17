@@ -68,45 +68,10 @@ var FTReview = window.FTReview = (function () {
     } catch (e) { return fallback; }
   }
 
-  // Ids already committed, read from data/changes.jsonl as SERVED. Best effort:
-  // over file:// there is no fetch, and a brand new repo has no such file yet.
-  // Failing to read it only risks re-offering something already approved, which
-  // is visible and harmless — far better than blocking review entirely.
-  async function appliedIds() {
-    const ids = new Set();
-    let ok = true;
-    try {
-      // Cache-bust: this file changes on every publish and would otherwise be
-      // served stale for minutes.
-      const res = await fetch('data/changes.jsonl?t=' + Date.now(), { cache: 'no-store' });
-      // A 404 is normal before the first publish; anything else means we could not
-      // read it, and the pending count is then an OVER-count.
-      if (!res.ok) return { ids: ids, ok: res.status === 404 };
-      const text = await res.text();
-      for (const line of text.split('\n')) {
-        if (!line.trim()) continue;
-        try {
-          const e = JSON.parse(line);
-          if (e.fromProposal) ids.add(e.fromProposal);
-        } catch (err) { /* skip a torn line rather than abandon the file */ }
-      }
-    } catch (e) { ok = false; }   // file:// or offline
-    return { ids: ids, ok: ok };
-  }
-
-  // Decisions committed to the repo. Best effort for the same reasons as
-  // appliedIds: no fetch over file://, and the file may not exist yet.
-  async function committedDecisions() {
-    try {
-      const res = await fetch(REVIEWED_PATH + '?t=' + Date.now(), { cache: 'no-store' });
-      // Absent until the first decision is committed, which is not a failure.
-      if (!res.ok) return { list: [], ok: res.status === 404 };
-      const doc = JSON.parse(await res.text());
-      const list = doc && Array.isArray(doc.decisions) ? doc.decisions : [];
-      return { list: list.filter(d => d && typeof d === 'object' && typeof d.id === 'string')
-                         .map(d => Object.assign({}, d, { committed: true })), ok: true };
-    } catch (e) { return { list: [], ok: false }; }   // offline or malformed
-  }
+  // Both fetches now live in proposal-status.js, because the PROPOSER needs the
+  // same derivation: their bar could only ever say "N sent", a number that never
+  // went down. Admin additionally merges this device's uncommitted decisions,
+  // which is the one part that is not shared.
 
   // Decisions made on THIS device, durable only in localStorage. Entries written
   // before this file existed carried no `decision` field and always meant a
@@ -162,10 +127,7 @@ var FTReview = window.FTReview = (function () {
   // monotonic sequence number would fix both; it would also have to be
   // per-device and merged, which is more machinery than a single reviewer needs.
   function decisionMap(all) {
-    const byId = new Map();
-    const sorted = all.slice().sort((a, b) => String(a.at || '').localeCompare(String(b.at || '')));
-    for (const d of sorted) byId.set(d.id, d);
-    return byId;
+    return FTProposalStatus.latestPerId(all);
   }
 
   // Names arrive from whoever POSTed the proposal, and end up in the DOM, in
@@ -232,14 +194,33 @@ var FTReview = window.FTReview = (function () {
       loadState = 'error';
       if (!FTSupa.configured()) throw new Error('Supabase is not configured.');
       const fetched = await FTSupa.select('proposals', 'select=*&order=created_at.desc');
-      const app = await appliedIds();
-      const rev = await committedDecisions();
+      const app = await FTProposalStatus.fetchApplied();
+      const rev = await FTProposalStatus.fetchDecisions();
       const applied = app.ids;
       appliedOk = app.ok;
       reviewedOk = rev.ok;
       committed = rev.list;
       decisions = decisionMap(allDecisions());
-      rows = (fetched || []).map(r => Object.assign({}, r, {
+
+      // A row with `withdraws` set is not a proposal, it is the proposer asking us
+      // to drop one. Deletion is impossible for them — the table has no delete
+      // policy — so a withdrawal has to arrive as an insert.
+      //
+      // It is a HINT, never automatic. There is no login, so `withdraws` is
+      // client-asserted: anyone could post one against anyone's proposal, and
+      // honouring it silently would be a way to suppress someone else's
+      // legitimate suggestion. The reviewer still decides; the worst a forged
+      // withdrawal can do is put a line on a card.
+      const all = fetched || [];
+      const withdrawals = new Map();
+      for (const r of all) {
+        if (r && typeof r.withdraws === 'string' && r.withdraws) {
+          withdrawals.set(r.withdraws, r);   // newest-first order means last wins
+        }
+      }
+
+      rows = all.filter(r => !(r && r.withdraws)).map(r => Object.assign({}, r, {
+        _withdrawRequest: withdrawals.get(r.id) || null,
         // `ops` is a jsonb column, so neither it nor its elements need be what
         // we expect — and anyone can POST directly with the publishable key.
         //
@@ -250,11 +231,7 @@ var FTReview = window.FTReview = (function () {
         // service_role key in the dashboard. Filter the elements too, so
         // render, preview and approve are all safe from one place.
         ops: (Array.isArray(r.ops) ? r.ops : []).filter(o => o && typeof o === 'object'),
-        // Approval outranks any decision record: the ops are IN data/family.js,
-        // which is a fact about the tree rather than a note about the proposal.
-        _state: applied.has(r.id) ? 'approved'
-              : (decisions.get(r.id) || {}).decision === 'rejected' ? 'rejected'
-              : 'pending',
+        _state: FTProposalStatus.stateOf(r.id, applied, decisions),
         _decision: decisions.get(r.id) || null,
       }));
       loadState = 'ok';

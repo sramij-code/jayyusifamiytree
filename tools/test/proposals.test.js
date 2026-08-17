@@ -630,6 +630,131 @@ module.exports = function ({ describe, ok, eq }) {
     });
   });
 
+  describe("a proposer sees where their own proposals actually stand", () => {
+    // The bug: the bar read FTPropose.sent().length, a local list nothing ever
+    // removes from, so it announced "N اقتراحات قيد المراجعة" forever — including
+    // proposals approved or declined long before. Status is now derived from the
+    // same two committed files the reviewer uses.
+    const MINE = 'p143';
+    const net = async (url) => {
+      const u = String(url);
+      if (u.indexOf('changes.jsonl') !== -1) {
+        // s2 was approved.
+        return { ok: true, status: 200, text: async () =>
+          JSON.stringify({ op: 'add_wife', describe: '+ x', fromProposal: 's2' }) + '\n' };
+      }
+      if (u.indexOf('proposals-reviewed.json') !== -1) {
+        // s3 was declined.
+        return { ok: true, status: 200, text: async () => JSON.stringify({
+          version: 1,
+          decisions: [{ id: 's3', decision: 'rejected', at: '2026-08-01T00:00:00Z', note: null }],
+        }) };
+      }
+      // The inbox, filtered by author_node the way mine() asks for it.
+      ok(u.indexOf('author_node=eq.' + MINE) !== -1, 'mine() filters by author_node server-side');
+      return { ok: true, status: 200, json: async () => ([
+        // A withdrawal I already sent for s1. It must annotate s1, not appear as a
+        // fourth (op-less) proposal of my own.
+        { id: 'sw', created_at: '2026-08-05T00:00:00Z', author_node: MINE, author_name: 'رامي',
+          note: null, ops: [], withdraws: 's1' },
+        { id: 's1', created_at: '2026-08-03T00:00:00Z', author_node: MINE, author_name: 'رامي',
+          note: null, ops: [{ op: 'add_wife', target: 'p2', id: 'ps1', name: 'ا', describe: '+ ا' }] },
+        { id: 's2', created_at: '2026-08-02T00:00:00Z', author_node: MINE, author_name: 'رامي',
+          note: null, ops: [{ op: 'add_wife', target: 'p3', id: 'ps2', name: 'ب', describe: '+ ب' }] },
+        { id: 's3', created_at: '2026-08-01T00:00:00Z', author_node: MINE, author_name: 'رامي',
+          note: null, ops: [{ op: 'add_wife', target: 'p4', id: 'ps3', name: 'ج', describe: '+ ج' }] },
+      ]) };
+    };
+
+    const store = { ftProposeMode: 'true', ftHomeNode: MINE };
+    const v = boot({ store, role: 'propose', net });
+
+    // Before asking: something was sent, but the state is UNKNOWN — not pending.
+    run(v, "FTPropose.rememberSent({id:'s1', created_at:'2026-08-03T00:00:00Z', ops:[]});");
+    const before = run(v, 'FTPropose.barState()');
+    eq(before.state, 'unknown', 'before checking, the state is unknown');
+    eq(before.pending, null, 'with no pending count asserted');
+
+    return run(v, 'FTPropose.mine()').then(() => {
+      const rows = run(v, 'FTPropose.lastMine()');
+      eq(rows.length, 3, 'all three of my proposals are listed, and the withdrawal row is not');
+      ok(!rows.some(r => r.withdraws), 'no withdrawal row is presented as a proposal');
+      eq(rows.filter(r => r._withdrawn).map(r => r.id), ['s1'],
+         'the withdrawal annotates the proposal it points at');
+      eq(rows.map(r => r.id + ':' + r._state).sort(),
+         ['s1:pending', 's2:approved', 's3:rejected'],
+         'each carries its real status, derived from the committed files');
+
+      const b = run(v, 'FTPropose.barState()');
+      eq(b.state, 'pending', 'the bar reports work still outstanding');
+      eq(b.pending, 1, 'exactly one is pending, not three');
+      eq(b.approved, 1, 'one approved');
+      eq(b.rejected, 1, 'one declined');
+      eq(b.partial, false, 'and both files were readable');
+    });
+  });
+
+  describe('withdrawing is an insert, because deletion is impossible', () => {
+    // tools/proposals.sql grants insert and select only — no update, no delete —
+    // so a proposer can never remove a row. A withdrawal points at the row it
+    // wants dropped and the reviewer decides.
+    const MINE = 'p143';
+    const posted = [];
+    const net = async (url, opts) => {
+      const u = String(url);
+      if (u.indexOf('changes.jsonl') !== -1) return { ok: true, status: 200, text: async () => '' };
+      if (u.indexOf('proposals-reviewed.json') !== -1) return { ok: false, status: 404 };
+      if (opts && opts.method === 'POST') {
+        posted.push(JSON.parse(opts.body));
+        return { ok: true, status: 201, json: async () => ([{ id: 'w1', created_at: 'x' }]) };
+      }
+      return { ok: true, status: 200, json: async () => ([
+        { id: 'k1', created_at: '2026-08-03T00:00:00Z', author_node: MINE, author_name: 'رامي',
+          note: null, ops: [{ op: 'add_wife', target: 'p2', id: 'pk1', name: 'ا', describe: '+ ا' }] },
+      ]) };
+    };
+    const v = boot({ store: { ftProposeMode: 'true', ftHomeNode: MINE }, role: 'propose', net });
+    return run(v, 'FTPropose.mine()').then(() =>
+      run(v, "FTPropose.withdraw('k1')").then(() => {
+        eq(posted.length, 1, 'exactly one row was inserted');
+        eq(posted[0].withdraws, 'k1', 'it points at the proposal being withdrawn');
+        eq(posted[0].ops, [], 'and carries no ops of its own');
+        ok(run(v, 'FTPropose.lastMine()[0]._withdrawn'),
+           'the local view reflects it without a refetch');
+      }));
+  });
+
+  describe('a withdrawal row is an annotation, not a proposal', () => {
+    // If it were treated as a proposal it would show up as an empty one, and its
+    // op-less body would make the queue look like it had work in it.
+    const net = async (url) => {
+      const u = String(url);
+      if (u.indexOf('changes.jsonl') !== -1) return { ok: true, status: 200, text: async () => '' };
+      if (u.indexOf('proposals-reviewed.json') !== -1) return { ok: false, status: 404 };
+      return { ok: true, status: 200, json: async () => ([
+        { id: 'wd', created_at: '2026-08-04T00:00:00Z', author_node: 'p143', author_name: 'رامي',
+          note: null, ops: [], withdraws: 'orig' },
+        { id: 'orig', created_at: '2026-08-03T00:00:00Z', author_node: 'p143', author_name: 'رامي',
+          note: null, ops: [{ op: 'add_wife', target: 'p2', id: 'porig', name: 'ا', describe: '+ ا' }] },
+      ]) };
+    };
+    const a = boot({ role: 'admin', net });
+    return run(a, 'FTReview.load()').then(() => {
+      eq(run(a, 'FTReview.all().length'), 1, 'only the real proposal is listed');
+      eq(run(a, 'FTReview.all()[0].id'), 'orig', 'and it is the withdrawal target');
+      ok(run(a, '!!FTReview.all()[0]._withdrawRequest'),
+         'the target is annotated with the request');
+      eq(run(a, 'FTReview.all()[0]._withdrawRequest.author_name'), 'رامي', 'naming who asked');
+
+      // Crucially it is STILL pending: a client-asserted withdrawal must not
+      // silently remove someone else's suggestion from the queue.
+      eq(run(a, 'FTReview.all()[0]._state'), 'pending',
+         'a withdrawal request does not decide anything by itself');
+      eq(run(a, 'FTReview.pending().length'), 1, 'so the reviewer still sees it');
+      eq(run(a, 'FTReview.buttonState().count'), 1, 'and it still counts on the button');
+    });
+  });
+
   describe('crafted proposals cannot break the domain rules', () => {
     const cases = [
       ['add_father to someone who already has one',

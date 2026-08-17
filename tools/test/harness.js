@@ -92,6 +92,9 @@ function boot(opts) {
 
   load('assets/js/edit.js');
   load('assets/js/supabase.js');
+  // Shared by both pages: where a proposal stands, derived from the two committed
+  // files rather than stored anywhere.
+  load('assets/js/proposal-status.js');
   if (role === 'propose') load('assets/js/propose.js');
   else {
     load('assets/js/admin/review.js');

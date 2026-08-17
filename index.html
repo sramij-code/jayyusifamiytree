@@ -150,6 +150,22 @@
     <button class="propose-only pb-btn" id="btn-propose-undo" disabled>&#8630;</button>
     <button class="propose-only pb-btn" id="btn-propose-send" disabled>إرسال للمراجعة ↑</button>
     <span class="propose-only pb-note">تعديلاتك تظهر لك فقط حتى تُعتمد</span>
+    <!-- Deliberately NOT .propose-only: checking where your suggestions stand
+         should not require entering edit mode. Shown once anything was sent. -->
+    <button id="btn-my-proposals" hidden>اقتراحاتي <span id="mine-badge"></span></button>
+  </div>
+
+  <!-- The proposer's own proposals: what was sent, where it stands, and a way to
+       ask for one to be dropped. Withdrawing is a REQUEST — the table has no
+       delete policy for the publishable key, so nothing here can remove a row. -->
+  <div id="mine-drawer">
+    <div id="mine-header">
+      <span id="mine-title">اقتراحاتي</span>
+      <button id="mine-refresh" class="mine-btn ghost">تحديث</button>
+      <button id="mine-close" class="mine-btn ghost">✕</button>
+    </div>
+    <div id="mine-status"></div>
+    <div id="mine-list"></div>
   </div>
 
   <!-- "Who are you?" — claims a node as this visitor's identity, so proposals
@@ -196,6 +212,7 @@
   <script src="assets/js/core/search.js"></script>
 
   <script src="assets/js/supabase.js"></script>
+  <script src="assets/js/proposal-status.js"></script>
   <script src="assets/js/changelog.js"></script>
   <script src="assets/js/edit.js"></script>
   <script src="assets/js/propose.js"></script>

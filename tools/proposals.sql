@@ -29,6 +29,41 @@ create table proposals (
 -- Newest-first review, which is the only query the admin panel runs.
 create index proposals_created_at_idx on proposals (created_at desc);
 
+-- ---------------------------------------------------------------------------
+-- Withdrawal requests.
+--
+-- MIGRATION for an existing table — run this one line on its own:
+--
+--   alter table proposals add column withdraws uuid references proposals(id);
+--
+-- A proposer cannot delete or edit what they sent: there is no delete policy and
+-- no update policy, deliberately. So "cancel my proposal" has to arrive the only
+-- way the publishable key can write anything — as an INSERT that points at the
+-- row it wants dropped. Such a row is not a proposal; both UIs filter it out of
+-- the list and use it to annotate its target.
+--
+-- It is a REQUEST, never automatic. There is no login, so `withdraws` is
+-- client-asserted: anyone could post one against anyone's proposal. Honouring it
+-- silently would hand every visitor a way to suppress someone else's legitimate
+-- suggestion. The reviewer still decides, so the worst a forged withdrawal can do
+-- is put a line on a card.
+--
+-- The FK is what stops it pointing at nothing; ON DELETE is left alone because
+-- only service_role can delete, and that is a deliberate act.
+-- ---------------------------------------------------------------------------
+alter table proposals add column withdraws uuid references proposals(id);
+
+-- Only rows that withdraw something, for the annotation pass.
+create index proposals_withdraws_idx on proposals (withdraws) where withdraws is not null;
+
+-- Proposals by author, for "my proposals".
+--
+-- author_node is SELF-ASSERTED — me() reads it from localStorage and there is no
+-- login — so this index serves display, not ownership. select is open to everyone
+-- anyway; anybody can read anybody's proposals, which is why the table holds only
+-- family names and never a decision.
+create index proposals_author_node_idx on proposals (author_node);
+
 alter table proposals enable row level security;
 
 -- Anyone may propose, and anyone may read.

@@ -41,10 +41,10 @@ body.propose-mode .pb-note { display: inline !important; }
    under body.propose-mode left the bar overlaying the top of the canvas in the
    default read-only view, hiding #btn-reset-view at top:16px behind it.
 
-   42px = the toggle's 32px min-height plus the bar's 5px top and bottom
-   padding. The bar keeps one row in both modes on a wide screen, so one value
-   covers both. */
-#app { padding-top: calc(42px + env(safe-area-inset-top)); }
+   43px = the toggle's 32px min-height, the bar's 5px top and bottom padding,
+   and its 1px border-bottom. The bar keeps one row in both modes on a wide
+   screen, so one value covers both. */
+#app { padding-top: calc(43px + env(safe-area-inset-top)); }
 
 #propose-toggle {
   font-family: var(--arabic);
@@ -293,7 +293,12 @@ body.propose-mode #propose-toggle {
   /* Propose mode adds the identity chip, status and two buttons, which wrap to
      a second row at this width. */
   body.propose-mode #app { padding-top: calc(84px + env(safe-area-inset-top)); }
-  .pb-note { display: none !important; }
+  /* Must out-specify `body.propose-mode .pb-note` near the top of this file,
+     which is (0,2,1) !important. A bare `.pb-note` at (0,1,0) lost that tie
+     regardless of source order, so the note leaked onto a THIRD row at 375px —
+     taking the bar to 103px against the 84px reserved below and covering the top
+     of #btn-reset-view. */
+  body.propose-mode .pb-note { display: none !important; }
   /* base.css adds env(safe-area-inset-top) to this button's own `top`, which was
      right when nothing above it reserved space. #app's padding now includes that
      inset, and the button is absolute inside the padded container — so keeping it
@@ -313,4 +318,109 @@ body.propose-mode #propose-toggle {
 @media (hover: none) {
   .who-row:hover { background: transparent; border-color: transparent; }
   .pb-btn:hover:not(:disabled) { background: var(--bg); }
+}
+
+
+/* ============================================================================
+   MY PROPOSALS
+   Mirrors the admin review drawer, deliberately: a proposer reading their own
+   suggestions should recognise the same layout the reviewer sees.
+============================================================================ */
+
+/* Three looks, never two — '…' for "not checked" must not read like '✓'. */
+#btn-my-proposals {
+  font-family: var(--arabic); font-size: 12px;
+  padding: 5px 10px; min-height: 30px;
+  border: 1px solid var(--sidebar-border); border-radius: 8px;
+  background: var(--bg); color: var(--accent-deep); cursor: pointer;
+}
+#btn-my-proposals.mine-pending { border-color: #b45309; color: #7c2d12; font-weight: 700; }
+#btn-my-proposals.mine-unknown { border-style: dashed; }
+#mine-badge {
+  background: #b45309; color: #fff;
+  border-radius: 9px; padding: 0 5px; margin-right: 4px;
+  font-size: 9px; font-weight: 700;
+}
+#btn-my-proposals.mine-unknown #mine-badge { background: var(--accent-dim); }
+
+#mine-drawer {
+  position: fixed;
+  /* Below the propose bar, which is fixed at the top and respects the notch. */
+  top: calc(43px + env(safe-area-inset-top));
+  bottom: 0; left: 0;
+  width: 360px; max-width: 92vw;
+  background: var(--sidebar-bg);
+  border-right: 1px solid var(--sidebar-border);
+  display: flex; flex-direction: column;
+  transform: translateX(-102%);
+  transition: transform .22s ease;
+  z-index: 320;                     /* over the canvas, under the modals (400) */
+}
+#mine-drawer.open { transform: translateX(0); }
+
+#mine-header {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--sidebar-border);
+}
+#mine-title { font-family: var(--arabic); font-size: 14px; font-weight: 700; margin-left: auto; }
+#mine-status { font-family: var(--arabic); font-size: 12px; padding: 6px 14px; color: var(--accent-dim); }
+#mine-status.err { color: #991b1b; }
+#mine-status.ok  { color: #166534; }
+
+#mine-list {
+  flex: 1; overflow-y: auto;
+  padding: 8px 14px 20px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+#mine-empty, .mine-empty {
+  font-family: var(--arabic); font-size: 13px;
+  color: var(--accent-dim); padding: 14px 2px;
+}
+
+.mine-card {
+  background: var(--bg);
+  border: 1px solid var(--sidebar-border);
+  border-radius: 12px; padding: 10px 12px;
+}
+.mine-card.state-approved { opacity: .62; }
+.mine-card.state-rejected { opacity: .62; }
+.mine-card.withdrawn { border-style: dashed; }
+
+.mine-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.mine-when { font-family: var(--mono); font-size: 10px; color: var(--accent-dim); }
+.mine-tag  { font-family: var(--arabic); font-size: 10px; color: var(--accent-dim); margin-right: auto; }
+
+.mine-op {
+  font-family: var(--arabic); font-size: 13px; line-height: 1.7;
+  color: var(--accent-deep); background: var(--node-bg);
+  border-radius: 7px; padding: 5px 8px; margin-bottom: 3px;
+}
+.mine-note {
+  font-family: var(--arabic); font-size: 12.5px; line-height: 1.7;
+  color: #92400e; background: rgba(245, 158, 11, 0.10);
+  border-right: 3px solid #f59e0b;
+  border-radius: 6px; padding: 6px 9px; margin: 6px 0 2px;
+}
+/* A request, not an outcome — worded and styled so it does not read as done. */
+.mine-withdrawn {
+  font-family: var(--arabic); font-size: 12px; font-weight: 700;
+  color: #92400e; margin: 6px 0 2px;
+}
+
+.mine-actions { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+.mine-btn {
+  font-family: var(--arabic); font-size: 12px;
+  padding: 7px 12px; min-height: 36px;      /* 36px is the floor used elsewhere */
+  border: 1px solid var(--sidebar-border); border-radius: 8px;
+  background: var(--bg); color: var(--accent-deep); cursor: pointer;
+}
+.mine-btn.ghost { background: transparent; }
+.mine-btn:disabled { opacity: .5; cursor: default; }
+
+/* Full width on a phone: a 360px drawer beside a 375px viewport leaves a sliver
+   of canvas that is neither usable nor dismissable. */
+@media (max-width: 640px) {
+  #mine-drawer { width: 100%; max-width: 100%; }
+  .mine-btn { min-height: 44px; }           /* touch target */
 }

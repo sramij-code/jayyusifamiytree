@@ -46,12 +46,37 @@ function markDirty() {
 function markFamilyDirty() {
   const n = typeof FTChangeLog === 'undefined' ? 0 : FTChangeLog.count();
 
+  // Review decisions are the second thing a commit can carry, and the only one
+  // for a session spent turning proposals down. Counting only edits left COMMIT
+  // disabled after a rejection, so the decision stayed in this browser and the
+  // proposal came back as pending on every other device.
+  const d = typeof FTReview === 'undefined' ? 0 : FTReview.uncommitted().length;
+
+  // A stale draft hiding committed people is NOT "in sync", and saying so sent a
+  // reviewer looking for a person their own draft was hiding.
+  const hidden = typeof FTChangeLog === 'undefined' ? { missing: [] }
+                                                    : FTChangeLog.draftDivergence();
+
   const el = document.getElementById('family-state');
   if (el) {
-    el.textContent = n === 0
-      ? '○ TREE IN SYNC'
-      : '● ' + n + (n === 1 ? ' EDIT' : ' EDITS') + ' UNPUBLISHED';
-    el.className = n === 0 ? '' : 'dirty';
+    const bits = [];
+    if (n) bits.push(n + (n === 1 ? ' EDIT' : ' EDITS'));
+    if (d) bits.push(d + (d === 1 ? ' DECISION' : ' DECISIONS'));
+    if (hidden.missing.length) {
+      el.textContent = '▲ ' + hidden.missing.length + ' HIDDEN BY STALE DRAFT' +
+                       (bits.length ? ' · ' + bits.join(' + ') + ' UNPUBLISHED' : '');
+      el.className = 'dirty';
+      el.title = 'This browser\'s draft is missing ' + hidden.missing.length +
+        ' person(s) that are in data/family.js: ' + hidden.names.join(', ') +
+        (hidden.missing.length > hidden.names.length ? ', …' : '') +
+        '. Commit any pending edits, then DISCARD DRAFT to resync.';
+    } else {
+      el.textContent = bits.length === 0
+        ? '○ TREE IN SYNC'
+        : '● ' + bits.join(' + ') + ' UNPUBLISHED';
+      el.className = bits.length === 0 ? '' : 'dirty';
+      el.title = '';
+    }
   }
 
   const commitBtn = document.getElementById('btn-commit-family');
@@ -62,7 +87,7 @@ function markFamilyDirty() {
       : 'CONNECT GITHUB …';
     // Without a token the button's job is to collect one, so it stays live
     // even with nothing to publish.
-    commitBtn.disabled = connected && n === 0;
+    commitBtn.disabled = connected && n === 0 && d === 0;
   }
 
   const discardBtn = document.getElementById('btn-discard-family');
@@ -81,6 +106,20 @@ function markFamilyDirty() {
 // Session undo. Restores the snapshot taken before the last edit and drops the
 // changelog entries that edit added.
 function undoEdit() {
+  // While a proposal preview is live, ⌘Z means "back out of this preview" —
+  // that is what the user is looking at, and it is the only snapshot they can
+  // coherently undo.
+  //
+  // Undoing past it left `previewing` set with the tree already restored, and
+  // approve() then recorded entries for edits no longer present: changes.jsonl
+  // asserting people family.js lacks, with fromProposal marking the proposal
+  // applied forever so it could never be reviewed again.
+  if (typeof FTReview !== 'undefined' && FTReview.previewing()) {
+    FTReview.dismiss();
+    markFamilyDirty();
+    setFamilyStatus('أُلغيت المعاينة');
+    return;
+  }
   if (!FTChangeLog.undo()) return;
   render(true);
   renderSearchResults(
@@ -169,6 +208,15 @@ function publishFamily() {
     setFamilyStatus('✕ اعتمد أو ألغِ المعاينة أولاً · a proposal preview is live', 'dirty');
     return;
   }
+  // Same reasoning as commitFamily: this file is meant to replace data/family.js,
+  // so exporting a tree that hides committed people hands over a deletion.
+  const hidden = FTChangeLog.draftDivergence();
+  if (hidden.missing.length > 0) {
+    setFamilyStatus('✕ المسودة تُخفي ' + hidden.missing.length + ' شخصًا (' +
+      hidden.names.join('، ') + ') · this export would delete them', 'dirty');
+    return;
+  }
+
   const out = {
     people: state.people,
     partnerships: state.partnerships,
@@ -285,7 +333,30 @@ function previewBlockingPublish() {
 
 async function commitFamily() {
   if (!FTGitHub.hasToken()) { openTokenModal(); return; }
-  if (FTChangeLog.count() === 0) return;
+
+  // Two independent reasons to commit. Testing only the changelog here blocked a
+  // rejection-only commit in the UI even once github.js allowed it, so a decision
+  // still could not leave the browser.
+  const edits = FTChangeLog.count();
+  const decisions = typeof FTReview === 'undefined' ? 0 : FTReview.uncommitted().length;
+  if (edits === 0 && decisions === 0) return;
+
+  // NEVER publish a tree that is hiding committed people.
+  //
+  // familyFileBody() serialises state verbatim, so committing while a stale draft
+  // hides someone DELETES them from data/family.js — silently, and the changelog
+  // would not mention it because no edit removed them. Measured: an admin whose
+  // draft predated Ola1 would have published 1,747 people over the committed
+  // 1,748, dropping her with no record.
+  //
+  // Only gated on edits, because a decisions-only commit never writes family.js.
+  const hidden = FTChangeLog.draftDivergence();
+  if (edits > 0 && hidden.missing.length > 0) {
+    setFamilyStatus('✕ لا تنشر: المسودة تُخفي ' + hidden.missing.length + ' شخصًا (' +
+      hidden.names.join('، ') + ') · publishing now would DELETE them — ' +
+      'discard the stale draft first', 'dirty');
+    return;
+  }
 
   if (previewBlockingPublish()) {
     setFamilyStatus('✕ اعتمد أو ألغِ المعاينة أولاً · a proposal preview is live', 'dirty');
@@ -298,12 +369,22 @@ async function commitFamily() {
   try {
     const r = await FTGitHub.publish(msg => setFamilyStatus('· ' + msg));
     // Only now is the work safely off this device, so only now is it safe to
-    // drop the draft that was protecting it.
-    FTChangeLog.clearLog();
-    FTChangeLog.clearDraft();
+    // drop the draft that was protecting it. Guarded on there having BEEN edits:
+    // a rejection-only commit must not clear a draft it never published.
+    // FTGitHub.publish has already flagged the decisions as committed.
+    if (edits > 0) {
+      FTChangeLog.clearLog();
+      FTChangeLog.clearDraft();
+    }
     // Before the status, which markFamilyDirty would otherwise overwrite.
     markFamilyDirty();
-    setFamilyStatus('✓ committed ' + r.count + ' to ' + r.branch + ' · ' + r.sha.slice(0, 7));
+    if (typeof renderReviewList === 'function' && FTReview.all().length) renderReviewList();
+
+    const what = [];
+    if (r.count) what.push(r.count + (r.count === 1 ? ' edit' : ' edits'));
+    if (r.decisions) what.push(r.decisions + (r.decisions === 1 ? ' decision' : ' decisions'));
+    setFamilyStatus('✓ committed ' + what.join(' + ') + ' to ' + r.branch +
+                    ' · ' + r.sha.slice(0, 7));
   } catch (e) {
     // The draft and log are deliberately untouched on failure — a network
     // blip must not cost the edits.

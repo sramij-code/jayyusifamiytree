@@ -49,7 +49,6 @@ var FTChangeLog = window.FTChangeLog = (function () {
 
   const DRAFT_KEY = 'ftFamilyDraft:' + ROLE;  // the mutated tree, so a tab close is survivable
   const LOG_KEY   = 'ftChangeLog:' + ROLE;    // edits not yet committed to the repo
-  const WHO_KEY   = 'ftEditorName';           // who to credit — same person either way
 
   function read(key, fallback) {
     try {
@@ -90,6 +89,33 @@ var FTChangeLog = window.FTChangeLog = (function () {
     draft: function () { return read(DRAFT_KEY, null); },
     hasDraft: function () { return this.draft() !== null; },
 
+    // What the saved draft HIDES from the committed data.
+    //
+    // applyDraft replaces state.people wholesale, so a draft saved before someone
+    // was committed keeps them off this browser's tree indefinitely — and because
+    // the changelog can be empty, the publish bar cheerfully said "TREE IN SYNC"
+    // while the view was missing a person data/family.js contains. That produced
+    // the worst kind of confusion: an admin reviewing a proposal to delete Ola1,
+    // unable to see Ola1, with the proposal refusing to apply and staying pending
+    // forever because its target did not exist in the draft.
+    //
+    // Only the committed-but-missing direction is a problem. Draft-only people are
+    // normal: they are unpublished admin edits, or a proposer's own sent
+    // suggestion, which the draft exists specifically to keep on screen.
+    //
+    // initState deep-copies familyData, so it stays an untouched baseline no
+    // matter how much state has been mutated.
+    draftDivergence: function () {
+      const d = this.draft();
+      const none = { missing: [], names: [] };
+      if (!d || !d.people || typeof familyData === 'undefined') return none;
+      const missing = Object.keys(familyData.people).filter(id => !d.people[id]);
+      return {
+        missing: missing,
+        names: missing.slice(0, 5).map(id => familyData.people[id].name),
+      };
+    },
+
     clearDraft: function () {
       try { localStorage.removeItem(DRAFT_KEY); } catch (e) { /* nothing to undo */ }
     },
@@ -122,14 +148,21 @@ var FTChangeLog = window.FTChangeLog = (function () {
     // ---- editor identity -------------------------------------------------
 
     // Git attributes every API commit to the token's owner, so commit metadata
-    // cannot say who actually made an edit. This field carries it instead,
-    // which is what matters once anyone but the owner can edit.
+    // cannot say who actually made an edit. This field carries it instead.
+    //
+    // Derived rather than stored. It used to read a localStorage key that
+    // nothing ever wrote, so it always answered 'admin' — including for a
+    // proposer's own ops, which then travelled to the inbox claiming to be from
+    // the owner. On the propose page the answer is the identity the visitor
+    // claimed; on admin it is the owner.
     who: function () {
-      try { return localStorage.getItem(WHO_KEY) || 'admin'; } catch (e) { return 'admin'; }
-    },
-
-    setWho: function (name) {
-      try { localStorage.setItem(WHO_KEY, name); } catch (e) { /* stays 'admin' */ }
+      if (typeof FTPropose !== 'undefined') {
+        try {
+          const me = FTPropose.me();
+          if (me && me.name) return me.name;
+        } catch (e) { /* identity not resolvable yet */ }
+      }
+      return 'admin';
     },
 
     // ---- log -------------------------------------------------------------
@@ -252,14 +285,11 @@ var FTChangeLog = window.FTChangeLog = (function () {
       return true;
     },
 
-    clearUndo: function () { this._undo = []; },
-
     // Discard the most recent snapshot WITHOUT restoring it: the change it was
     // protecting is being kept deliberately.
     //
-    // clearUndo would do the job for the top entry but throws away every older
-    // one too, so approving a proposal used to wipe the admin's undo history for
-    // their own unrelated edits made earlier in the session.
+    // Approving a proposal must not wipe the admin's undo history for their own
+    // unrelated edits made earlier in the session.
     dropUndo: function () { this._undo.pop(); },
   };
 })();

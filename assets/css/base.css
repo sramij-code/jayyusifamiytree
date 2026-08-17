@@ -473,7 +473,7 @@ html, body {
       border-color: var(--accent);
     }
 
-#btn-add-relative:hover { background: var(--accent-mid); }
+#btn-add-relative:hover:not(:disabled) { background: var(--accent-mid); }
 
 #btn-close-panel {
       background: transparent;
@@ -495,7 +495,11 @@ html, body {
 
 .panel-btn:disabled:hover {
       transform: none;
-      background: var(--accent-dim);
+      /* Was var(--accent-dim) — MORE saturated than the resting --bg, so a tap
+         on a disabled button (عقدة نهائية on a woman is the common case) left it
+         stuck mid-purple on touch. This rule is (0,3,0) and outranks the
+         @media (hover:none) guard at (0,2,0), so the guard could not undo it. */
+      background: var(--bg);
     }
 
 #modal-terminal-hint {
@@ -516,7 +520,13 @@ html, body {
       background: var(--modal-overlay);
       backdrop-filter: blur(4px);
       -webkit-backdrop-filter: blur(4px);
-      z-index: 200;
+      /* Above #propose-bar and #publish-bar, both z-index 300. At 200 they
+         painted over the scrim and stayed clickable, so a visitor could hit
+         "send for review" and an admin every publish/commit/discard control
+         while this dialog was open. The who/send/token overlays are already
+         400; only this shared one was missed. Raising a child would not work —
+         backdrop-filter makes this an atomic stacking context. */
+      z-index: 400;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -746,7 +756,14 @@ html, body {
 @media (max-width: 640px) {
   #sidebar {
     position: fixed;
-    inset: auto 0 0 0;
+    /* Docked ABOVE the 28px status bar, not over it.
+       Both wanted the bottom 28px, and no z-index order satisfies both: lifting
+       the status bar (its own fix) hid the grab handle's label and cut its hit
+       area from 48px to 20px, below the 44px minimum this file enforces
+       everywhere else — and a swipe starting there targeted the bar, so
+       touchstart never reached the sheet. Giving the sheet its own 28px offset
+       means neither has to win. */
+    inset: auto 0 28px 0;
     width: 100% !important;
     min-width: 0 !important;
     height: 62vh;
@@ -787,10 +804,23 @@ html, body {
   #canvas-container { width: 100%; }
 
   /* Desktop pointer instructions on a device with no wheel, no drag cursor
-     and no ⌘ key. The status bar keeps only the node count. */
+     and no ⌘ key. The status bar keeps only the node count.
+     :not(.admin-trigger) because [ADMIN] is the 9th span and this rule hid it —
+     showAdminModal has no other caller, so admin.html could not be logged into
+     on a phone at all. */
   .canvas-hint { display: none; }
   #status-bar { font-size: 11px; gap: 12px; padding: 0 12px; }
-  #status-bar span:nth-child(n+4) { display: none; }
+  #status-bar span:nth-child(n+4):not(.admin-trigger) { display: none; }
+
+  /* No position or z-index needed: #sidebar is docked 28px up (see its rule
+     above), so the bar's own 28px band is nobody else's. Lifting it instead was
+     tried and traded the covered bar for a 20px-tall sheet handle. */
+
+  /* 13px force-zooms iOS Safari on focus and never zooms back, and this is the
+     primary mobile rename path — edit.js creates it and calls focus()+select().
+     Also lifted above #node-panel (100), which sits over the tapped node on a
+     phone, so the editor was appearing behind the panel that opened it. */
+  #inline-name-editor { font-size: 16px; z-index: 210; }
 
   /* Reset stays reachable, but as a 44px circular glyph — the label costs
      width that a 375px canvas does not have. */
@@ -812,7 +842,8 @@ html, body {
      while the sheet is open: the node it describes is behind the sheet
      anyway, and picking a result closes the sheet and brings it back. */
   #node-panel {
-    bottom: calc(var(--sheet-peek) + 12px + env(safe-area-inset-bottom));
+    /* Clears the sheet, which itself now sits 28px up for the status bar. */
+    bottom: calc(var(--sheet-peek) + 28px + 12px + env(safe-area-inset-bottom));
     max-width: calc(100vw - 20px);
     flex-wrap: wrap;
     justify-content: center;

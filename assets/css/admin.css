@@ -437,20 +437,39 @@ body:not(.admin-mode) #app { padding-top: 0; }
     display: none !important;
   }
 
-  /* Wraps to two rows instead of overflowing ~354px off-screen. */
+  /* ONE scrolling row, not a wrapped block.
+
+     Wrapping was the problem: ten flex items totalling ~767px in a 351px inner
+     width, with .pub-note at flex:1 1 100% forcing a row of its own, stacked to
+     roughly 164px — against the 78px reserved below, hiding 86px of canvas at
+     375px and more on a notched phone. The exact row count depends on font
+     metrics, so reserving a bigger number would have stayed a guess. Scrolling
+     makes the height deterministic: 7 + 44 + 7 + 1 border = 59px.
+
+     The inset also belongs on the TOP of a top-fixed bar. On the bottom it added
+     height without moving anything clear of a notch — the same bug propose.css
+     documents fixing, never carried over here. */
   #publish-bar {
     height: auto;
-    min-height: 34px;
-    flex-wrap: wrap;
-    row-gap: 6px;
-    padding: 7px 12px calc(7px + env(safe-area-inset-top));
+    min-height: 48px;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: calc(7px + env(safe-area-inset-top)) 12px 7px;
     font-size: 11px;
   }
-  .pub-btn { padding: 9px 12px; font-size: 11px; min-height: 40px; }
-  .pub-note { flex: 1 1 100%; font-size: 10px; }
+  /* 44px is the touch minimum; these were 40. flex:0 0 auto so nothing shrinks
+     into unreadability inside the scroller. */
+  .pub-btn {
+    padding: 9px 12px; font-size: 11px;
+    min-height: 44px; flex: 0 0 auto; white-space: nowrap;
+  }
+  #publish-state, #family-state { flex: 0 0 auto; white-space: nowrap; }
+  /* It forced a whole row of its own, and it is desktop advice. */
+  .pub-note { display: none; }
 
-  /* Give the wrapped bar room, or it covers the top of the canvas. */
-  body.admin-mode #app { padding-top: 78px; }
+  /* Matches the 59px bar above. */
+  body.admin-mode #app { padding-top: calc(59px + env(safe-area-inset-top)); }
 
   /* #app's padding already moves the canvas down, so the reset button only
      needs the safe-area inset when the bar is absent. */
@@ -467,11 +486,42 @@ body:not(.admin-mode) #app { padding-top: 0; }
 /* ---- PROPOSALS DRAWER ----
    Slides in from the left. The canvas is LTR-forced but the drawer is Arabic
    content, so it sets direction back to rtl. */
+/* The اقتراحات button carries its own state, because "nothing pending" and
+   "could not reach the inbox" must not look the same. Four looks:
+
+     rv-pending  amber, count      work is waiting
+     rv-clean    muted, ✓          asked, nothing waiting
+     rv-unknown  dashed, … or !    never asked, or the ask failed
+     rv-partial  adds a red dot    counted, but the git side was unreadable
+*/
 #review-badge {
-  display: none;
   background: #b45309; color: #fff;
   border-radius: 9px; padding: 0 5px; margin-right: 4px;
   font-size: 9px; font-weight: 700;
+}
+
+#btn-review.rv-pending {
+  border-color: #b45309;
+  color: #7c2d12;
+  background: rgba(180, 83, 9, 0.10);
+  font-weight: 700;
+}
+
+/* Muted on purpose: a clean inbox should recede rather than compete with the
+   publish controls next to it. */
+#btn-review.rv-clean { opacity: .78; }
+#btn-review.rv-clean #review-badge { background: transparent; color: var(--accent-dim); }
+
+/* Dashed border reads as "indeterminate" rather than "fine". */
+#btn-review.rv-unknown { border-style: dashed; opacity: .9; }
+#btn-review.rv-unknown #review-badge { background: var(--accent-dim); }
+
+/* An over-count is possible; say so without hiding the number. */
+#btn-review.rv-partial::after {
+  content: '';
+  display: inline-block;
+  width: 5px; height: 5px; border-radius: 50%;
+  background: #dc2626; margin-right: 3px; vertical-align: top;
 }
 #review-drawer {
   position: fixed;
@@ -549,6 +599,75 @@ body:not(.admin-mode) #app { padding-top: 0; }
   border-radius: 6px; padding: 6px 9px; margin: 6px 0 2px;
 }
 
+/* A node a previewed proposal would DELETE. Styled here rather than in base.css
+   because only admin's review drawer can ever set the class, though core/render.js
+   emits it unconditionally — the same arrangement as the rest of the shared
+   renderer.
+
+   Deliberately not just dimmed: dimming reads as "collapsed" or "inactive" in
+   this tree, and the reviewer has to be able to tell "about to be removed" from
+   "already gone". Red dashed outline plus a struck-through label says it once. */
+.node-marked-removal .node-rect {
+  stroke: #dc2626;
+  stroke-width: 2.5;
+  stroke-dasharray: 5 3;
+  fill: rgba(220, 38, 38, 0.08);
+}
+.node-marked-removal .node-text,
+.node-marked-removal .node-sub-text {
+  fill: #991b1b;
+  text-decoration: line-through;
+}
+
+/* A withdrawal request. Dashed and neutral rather than red: it is the proposer's
+   ASK, not an outcome and not an error. */
+.review-withdrawn {
+  font-family: var(--arabic); font-size: 12px; font-weight: 700;
+  color: #92400e;
+  border: 1px dashed #f59e0b; border-radius: 6px;
+  padding: 5px 9px; margin: 6px 0 2px;
+}
+
+/* Why an op could not be applied. Red rather than the amber used for the
+   proposer's note: a note is information, this is an obstacle. */
+.review-failed {
+  font-family: var(--arabic); font-size: 12px; line-height: 1.65;
+  color: #991b1b;
+  background: rgba(220, 38, 38, 0.09);
+  border-right: 3px solid #dc2626;
+  border-radius: 6px; padding: 6px 9px; margin: 6px 0 2px;
+}
+.review-failed.hint { font-weight: 700; }
+
+/* A history row is context, not a queue item, so it never competes with the
+   pending cards above it. */
+.review-card.in-history { opacity: .72; }
+.review-card.in-history.state-pending { opacity: 1; }
+
+.review-subhead {
+  font-family: var(--mono); font-size: 10px; letter-spacing: .08em;
+  color: var(--accent-dim); text-transform: uppercase;
+  border-top: 1px solid var(--sidebar-border);
+  padding-top: 10px; margin-top: 4px;
+}
+
+/* Whether a decision is actually saved. An uncommitted one is called out in the
+   same amber the publish bar uses for unpublished work, because it is the same
+   fact: this exists only in this browser. */
+.review-decision {
+  font-family: var(--arabic); font-size: 11.5px;
+  color: var(--accent-dim); margin: 6px 0 2px;
+}
+.review-decision.uncommitted {
+  color: #92400e; font-weight: 700;
+  background: rgba(245, 158, 11, 0.10);
+  border-radius: 6px; padding: 4px 8px;
+}
+.review-trail {
+  font-family: var(--mono); font-size: 10px;
+  color: var(--accent-dim); margin: 2px 0 2px; opacity: .9;
+}
+
 .review-actions { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
 .review-btn {
   font-family: var(--arabic); font-size: 12px;
@@ -564,7 +683,17 @@ body:not(.admin-mode) #app { padding-top: 0; }
 .review-btn.ok:hover { background: #166534; }
 
 @media (max-width: 640px) {
-  #review-drawer { top: 78px; width: 100%; max-width: 100%; }
+  /* Was a hardcoded 78px inherited from the old #app reserve, so the drawer's
+     own header — and with it تحديث and ✕ — sat under a bar that is taller than
+     that and z-index 300 against the drawer's 250. review-ui.js is the only
+     close path, which made the drawer a one-way door on a phone. */
+  #review-drawer {
+    top: calc(59px + env(safe-area-inset-top));
+    width: 100%;
+    max-width: 100%;
+  }
+  /* 36px was under the touch minimum. */
+  .review-btn { min-height: 44px; }
 }
 @media (hover: none) {
   .review-btn:hover:not(:disabled) { background: var(--accent); }

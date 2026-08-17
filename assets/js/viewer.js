@@ -28,6 +28,7 @@ function initEventListeners() {
   document.getElementById('btn-reset-view').addEventListener('click', resetView);
 
   initProposeUI();
+  initMineUI();
 }
 
 function init() {

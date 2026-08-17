@@ -425,6 +425,90 @@ module.exports = function ({ describe, ok, eq }) {
     eq(invariants(v), [], 'invariants hold');
   });
 
+  describe('publishing is refused while a stale draft hides committed people', () => {
+    // The data-loss path. familyFileBody() serialises state verbatim, so committing
+    // while the draft hides someone DELETES them from data/family.js — with no
+    // changelog entry naming it, because no edit removed them. Measured on the real
+    // data: 1,747 people published over a committed 1,748.
+    const committed = loadFamily();
+    const victim = Object.keys(committed.people)[7];
+    const stale = JSON.parse(JSON.stringify(committed));
+    delete stale.people[victim];
+    stale.partnerships = stale.partnerships
+      .map(p => Object.assign({}, p, { partners: p.partners.map(x => x === victim ? null : x) }))
+      .filter(p => p.partners.some(Boolean) || p.children.length);
+
+    const store = {
+      'ftFamilyDraft:admin': JSON.stringify({ people: stale.people, partnerships: stale.partnerships }),
+      'ftChangeLog:admin': JSON.stringify([{ op: 'rename', target: 'p3', from: 'x', to: 'y', describe: '~ e' }]),
+    };
+    const a = boot({ store, role: 'admin' });
+    run(a, 'if (FTChangeLog.hasDraft()) FTChangeLog.applyDraft();');
+
+    eq(run(a, 'FTChangeLog.draftDivergence().missing'), [victim], 'the hidden person is detected');
+    ok(run(a, 'FTChangeLog.count()') > 0, 'and there is an edit that would write family.js');
+
+    // Layer 2: the function that moves the ref must refuse.
+    return run(a, `(function(){
+      FTGitHub.setToken('fake-token-for-the-guard-check');
+      return FTGitHub.publish(function(){}).then(
+        function(){ return 'RESOLVED — no guard'; },
+        function(e){ return 'threw: ' + e.message; });
+    })()`).then(outcome => {
+      ok(/Refusing to publish/.test(outcome),
+         'publish() refuses rather than deleting them', outcome);
+      ok(/hiding 1 person/.test(outcome), 'and says how many', outcome);
+    });
+  });
+
+  describe('a decisions-only commit is still allowed with a stale draft', () => {
+    // It never writes family.js, so it cannot delete anyone — blocking it would be
+    // wrong, and would leave rejections stuck in the browser again.
+    const committed = loadFamily();
+    const victim = Object.keys(committed.people)[7];
+    const stale = JSON.parse(JSON.stringify(committed));
+    delete stale.people[victim];
+
+    const store = {
+      'ftFamilyDraft:admin': JSON.stringify({ people: stale.people, partnerships: stale.partnerships }),
+      'ftChangeLog:admin': '[]',
+      'ftRejectedProposals': JSON.stringify([{ id: 'r9', decision: 'rejected', at: '2026-08-17T19:00:00Z', note: null }]),
+    };
+    const a = boot({ store, role: 'admin' });
+    run(a, 'if (FTChangeLog.hasDraft()) FTChangeLog.applyDraft();');
+
+    ok(run(a, 'FTChangeLog.draftDivergence().missing.length') > 0, 'the draft is stale');
+    eq(run(a, 'FTChangeLog.count()'), 0, 'but there are no tree edits');
+    eq(run(a, 'FTReview.uncommitted().length'), 1, 'and one decision is pending');
+
+    // The guard is gated on edits, so this must NOT be the refusal message.
+    return run(a, `(function(){
+      FTGitHub.setToken('fake-token-for-the-guard-check');
+      return FTGitHub.publish(function(){}).then(
+        function(){ return 'resolved'; }, function(e){ return 'threw: ' + e.message; });
+    })()`).then(outcome => {
+      ok(!/Refusing to publish/.test(outcome),
+         'a decisions-only commit is not blocked by the stale-draft guard', outcome);
+      ok(!/No changes to publish/.test(outcome),
+         'and it is not treated as having nothing to publish', outcome);
+    });
+  });
+
+  describe('discarding a stale draft keeps pending decisions', () => {
+    // The recovery path: the tree edit is lost (it was made against a stale tree),
+    // but a rejection is independent of the tree and must survive.
+    const store = {
+      'ftFamilyDraft:admin': JSON.stringify({ people: {}, partnerships: [] }),
+      'ftChangeLog:admin': JSON.stringify([{ op: 'rename', target: 'p3', describe: '~ e' }]),
+      'ftRejectedProposals': JSON.stringify([{ id: 'r9', decision: 'rejected', at: '2026-08-17T19:00:00Z', note: null }]),
+    };
+    const a = boot({ store, role: 'admin' });
+    run(a, 'FTChangeLog.clearLog(); FTChangeLog.clearDraft();');   // discardFamilyDraft
+    ok(!run(a, 'FTChangeLog.hasDraft()'), 'the draft is gone');
+    eq(run(a, 'FTChangeLog.count()'), 0, 'the edits are gone');
+    eq(run(a, 'FTReview.uncommitted().length'), 1, 'the decision survives the discard');
+  });
+
   describe('crafted proposals cannot break the domain rules', () => {
     const cases = [
       ['add_father to someone who already has one',

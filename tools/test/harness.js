@@ -93,7 +93,14 @@ function boot(opts) {
   load('assets/js/edit.js');
   load('assets/js/supabase.js');
   if (role === 'propose') load('assets/js/propose.js');
-  else load('assets/js/admin/review.js');
+  else {
+    load('assets/js/admin/review.js');
+    // github.js is loaded so the PUBLISH guards can be exercised. Its network
+    // calls go through the same ctx.fetch stub as everything else, so nothing
+    // reaches GitHub; what is testable is the refusal logic that runs before any
+    // request — which is where the stale-draft data-loss guard lives.
+    load('assets/js/admin/github.js');
+  }
 
   return ctx;
 }

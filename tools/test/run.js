@@ -11,6 +11,16 @@
 
 const fs = require('fs');
 const path = require('path');
+const { AsyncLocalStorage } = require('node:async_hooks');
+
+/* Which suite/group an assertion belongs to.
+   These were plain module-level variables read at ok() time, which is wrong for
+   any group returning a promise: its assertions resolve after later groups have
+   already run, so they were reported under whatever block happened to be current
+   — real failures in `proposals` were printed as `mobile / propose mode reserves
+   enough for its own bar`. AsyncLocalStorage carries the labels through async
+   continuations, so an assertion is attributed to the group that made it. */
+const als = new AsyncLocalStorage();
 
 const SUITES = ['static', 'domain', 'proposals', 'mobile'];
 
@@ -26,7 +36,7 @@ function describe(name, fn) {
   group = name;
   console.log('\n  ' + name);
   const held = name, heldSuite = suite;
-  const r = fn();
+  const r = als.run({ suite: heldSuite, group: held }, fn);
   if (r && typeof r.then === 'function') {
     pending.push(r.catch(e => {
       fail++;
@@ -44,8 +54,9 @@ function ok(cond, label, detail) {
   if (cond) { pass++; console.log('    ✓ ' + label); }
   else {
     fail++;
+    const cx = als.getStore() || { suite: suite, group: group };
     console.log('    ✗ ' + label + (detail ? '\n        ' + detail : ''));
-    failures.push(suite + ' / ' + group + ' / ' + label + (detail ? ' -- ' + detail : ''));
+    failures.push(cx.suite + ' / ' + cx.group + ' / ' + label + (detail ? ' -- ' + detail : ''));
   }
 }
 

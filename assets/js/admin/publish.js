@@ -208,6 +208,15 @@ function publishFamily() {
     setFamilyStatus('✕ اعتمد أو ألغِ المعاينة أولاً · a proposal preview is live', 'dirty');
     return;
   }
+  // Same reasoning as commitFamily: this file is meant to replace data/family.js,
+  // so exporting a tree that hides committed people hands over a deletion.
+  const hidden = FTChangeLog.draftDivergence();
+  if (hidden.missing.length > 0) {
+    setFamilyStatus('✕ المسودة تُخفي ' + hidden.missing.length + ' شخصًا (' +
+      hidden.names.join('، ') + ') · this export would delete them', 'dirty');
+    return;
+  }
+
   const out = {
     people: state.people,
     partnerships: state.partnerships,
@@ -331,6 +340,23 @@ async function commitFamily() {
   const edits = FTChangeLog.count();
   const decisions = typeof FTReview === 'undefined' ? 0 : FTReview.uncommitted().length;
   if (edits === 0 && decisions === 0) return;
+
+  // NEVER publish a tree that is hiding committed people.
+  //
+  // familyFileBody() serialises state verbatim, so committing while a stale draft
+  // hides someone DELETES them from data/family.js — silently, and the changelog
+  // would not mention it because no edit removed them. Measured: an admin whose
+  // draft predated Ola1 would have published 1,747 people over the committed
+  // 1,748, dropping her with no record.
+  //
+  // Only gated on edits, because a decisions-only commit never writes family.js.
+  const hidden = FTChangeLog.draftDivergence();
+  if (edits > 0 && hidden.missing.length > 0) {
+    setFamilyStatus('✕ لا تنشر: المسودة تُخفي ' + hidden.missing.length + ' شخصًا (' +
+      hidden.names.join('، ') + ') · publishing now would DELETE them — ' +
+      'discard the stale draft first', 'dirty');
+    return;
+  }
 
   if (previewBlockingPublish()) {
     setFamilyStatus('✕ اعتمد أو ألغِ المعاينة أولاً · a proposal preview is live', 'dirty');

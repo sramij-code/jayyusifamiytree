@@ -266,6 +266,20 @@ var FTGitHub = window.FTGitHub = (function () {
         throw new Error('No changes to publish.');
       }
 
+      // Layer 2 of the stale-draft guard. familyFileBody() is written from state,
+      // so a draft hiding committed people turns a publish into a deletion with no
+      // changelog entry naming it. Checked here as well as in commitFamily because
+      // this is the function that actually moves the ref.
+      if (edits > 0 && typeof FTChangeLog.draftDivergence === 'function') {
+        const hidden = FTChangeLog.draftDivergence();
+        if (hidden.missing.length > 0) {
+          throw new Error('Refusing to publish: this browser\'s draft is hiding ' +
+            hidden.missing.length + ' person(s) present in data/family.js (' +
+            hidden.names.join(', ') + '). Publishing would delete them. Discard the ' +
+            'stale draft and reload first.');
+        }
+      }
+
       const base = '/repos/' + OWNER + '/' + REPO;
       const ATTEMPTS = 4;
 

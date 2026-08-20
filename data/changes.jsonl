@@ -18,3 +18,4 @@
 {"ts":"2026-08-17T02:00:10.608Z","by":"مقلد","id":"pl153di8h","op":"add_wife","name":"Ola1","gender":"female","target":"p2","describe":"+ Ola1 · زوجة of عساف (p2)","generation":1,"targetName":"عساف","fromProposal":"4eea8db9-8906-41b1-ba11-bba6d84be0bb"}
 {"ts":"2026-08-17T02:00:20.140Z","by":"مقلد","id":"p7jsup317","op":"add_wife","name":"Mona1","gender":"female","target":"p4","describe":"+ Mona1 · زوجة of محمد (p4)","generation":2,"targetName":"محمد","fromProposal":"4eea8db9-8906-41b1-ba11-bba6d84be0bb"}
 {"ts":"2026-08-17T19:55:32.935Z","by":"مقلد","op":"delete_person","target":"pl153di8h","name":"Ola1","describe":"− Ola1 (pl153di8h)","fromProposal":"d257ee7f-9c18-4c93-a170-7d0fe37f6d80"}
+{"ts":"2026-08-20T02:44:44.240Z","by":"admin","op":"delete_person","target":"p7jsup317","name":"Mona1","describe":"− Mona1 (p7jsup317)"}

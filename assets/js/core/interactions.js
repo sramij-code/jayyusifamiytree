@@ -86,32 +86,41 @@ function expandAll() {
   render(true);
 }
 
-// Show every branch, then frame the whole thing.
+// The opening view, anchored anywhere.
 //
-// Distinct from expandAll(), which expands but leaves the viewport wherever it was —
-// so on a 1,700-person tree you end up zoomed into an arbitrary corner with no idea
-// anything happened.
-//
-// This exists because the per-user home view is a genuine trap: resetView() collapses
-// to homeNodeId() and expands one level, so once someone picks a name deep in the
-// tree, ⌂ takes them to a small subtree and there was no control that went the other
-// way. The only route back was clearing localStorage.
-//
-// render(false) deliberately: animating ~1,700 node groups is visibly worse than a
-// single hard repaint, and the fit that follows is what orients the user.
-function showFullTree() {
+// resetView and showFullTree differ ONLY in where they start, so the body lives once.
+// Collapse everything, expand the anchor one level, frame what that reveals.
+function openingViewFrom(anchorId) {
+  if (!anchorId || !state.people[anchorId]) return false;
   state.selectedNodeId = null;
   state.highlightedNodeId = null;
   state.selectedPathIds = new Set();
   hideNodePanel();
 
-  for (const id of Object.keys(state.people)) {
-    state.expandedNodes.add(id);
-    state.visibleNodes.add(id);
-  }
-  render(false);
-  // After the layout exists, or there are no coordinates to frame.
-  setTimeout(() => fitToNodes([...state.visibleNodes], false), 50);
+  state.expandedNodes.clear();
+  state.expandedNodes.add(anchorId);
+  state.visibleNodes = new Set([anchorId]);
+  expandNode(anchorId, true);
+
+  render(true);
+  setTimeout(() => fitToNodes([...state.visibleNodes], true), 50);
+  return true;
+}
+
+// The whole family from the top, COLLAPSED — not every branch expanded.
+//
+// This exists because the per-user home view is a trap: resetView() anchors on
+// homeNodeId(), so once someone picks a name deep in the tree, ⌂ takes them to a
+// small subtree (measured: 4 of 1,746 nodes from a generation-3 home) and nothing
+// went the other way. The only escape was clearing localStorage.
+//
+// Collapsed rather than fully expanded on purpose. Expanding all ~1,700 nodes is a
+// wall of boxes you then have to zoom out of; starting at the root and drilling down
+// is how you actually find someone. It also keeps the render cheap.
+//
+// Deliberately does NOT touch homeNodeId, so ⌂ still returns to your own view.
+function showFullTree() {
+  openingViewFrom(state.loggedInUser);
 }
 
 function collapseAll() {
@@ -160,19 +169,7 @@ function setHomeNode(personId) {
 // rest of the tree collapsed, framed to fit. Same end state as a reload, minus
 // the reload — and minus re-downloading 300KB of family data on mobile data.
 function resetView() {
-  const home = homeNodeId();
-  state.selectedNodeId = null;
-  state.highlightedNodeId = null;
-  state.selectedPathIds = new Set();
-  hideNodePanel();
-
-  state.expandedNodes.clear();
-  state.expandedNodes.add(home);
-  state.visibleNodes = new Set([home]);
-  expandNode(home, true);
-
-  render(true);
-  setTimeout(() => fitToNodes([...state.visibleNodes], true), 50);
+  openingViewFrom(homeNodeId());
 }
 
 function recomputeVisibleNodes() {

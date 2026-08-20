@@ -155,6 +155,61 @@ module.exports = function ({ describe, ok, eq }) {
        'a height change with a non-editable element focused still acts');
   });
 
+  describe('the full-tree button escapes a deep home node, collapsed', () => {
+    // The trap: resetView anchors on homeNodeId(), so once someone picks a name deep
+    // in the tree, ⌂ shows a small subtree and nothing went the other way. The only
+    // escape was clearing localStorage.
+    const committed = loadFamily();
+    const deep = Object.keys(committed.people).find(id => committed.people[id].generation >= 3);
+    ok(!!deep, 'the data has a generation-3 person to use as a home node');
+
+    const c = boot({ store: { ftHomeNode: deep }, role: 'admin' });
+    run(c, 'resetView();');
+    const home = run(c, 'state.visibleNodes.size');
+    ok(home < 10, '⌂ from a deep home node shows only a small subtree (' + home + ')');
+
+    run(c, 'showFullTree();');
+    const full = run(c, 'state.visibleNodes.size');
+    eq(run(c, 'state.expandedNodes.has(state.loggedInUser)'), true, '⇱ anchors at the root');
+    ok(run(c, 'state.visibleNodes.has(state.loggedInUser)'), 'and the root is on screen');
+
+    // COLLAPSED, not fully expanded. Expanding ~1,700 nodes is a wall of boxes you
+    // then have to zoom out of; the point is to start at the top and drill down.
+    ok(full < 50, 'it is collapsed, not every branch expanded (' + full + ' visible)');
+    ok(full < Object.keys(committed.people).length,
+       'specifically NOT all ' + Object.keys(committed.people).length + ' people');
+
+    // And it must still be explorable from there.
+    const drilled = run(c, `(function(){
+      var kids = childIndex()[state.loggedInUser] || [];
+      if (!kids.length) return -1;
+      expandNode(kids[0], true); recomputeVisibleNodes();
+      return state.visibleNodes.size;
+    })()`);
+    ok(drilled > full, 'drilling into a child reveals more (' + full + ' → ' + drilled + ')');
+
+    // It must not clobber the identity the visitor chose.
+    eq(run(c, 'homeNodeId()'), deep, '⇱ leaves the home node alone, so ⌂ still works');
+    run(c, 'resetView();');
+    eq(run(c, 'state.expandedNodes.has(' + JSON.stringify(deep) + ')'), true,
+       'and ⌂ returns to their own view');
+    eq(invariants(c), [], 'invariants hold throughout');
+  });
+
+  describe('resetView and showFullTree share one body', () => {
+    // They differ only in the anchor. Two copies would drift, and this one has already
+    // been edited twice.
+    const c = boot({ role: 'admin' });
+    eq(run(c, 'typeof openingViewFrom'), 'function', 'the shared helper exists');
+    eq(run(c, 'openingViewFrom("pNOT-A-PERSON")'), false, 'it refuses an unknown anchor');
+    eq(run(c, 'openingViewFrom(null)'), false, 'and a null one');
+    // A refusal must leave the view untouched rather than half-collapsed.
+    run(c, 'expandAll();');
+    const before = run(c, 'state.visibleNodes.size');
+    run(c, 'openingViewFrom("pNOPE");');
+    eq(run(c, 'state.visibleNodes.size'), before, 'a refused call changes nothing');
+  });
+
   describe('layout places every visible person', () => {
     const c = boot({ role: 'admin' });
     run(c, 'expandAll();');

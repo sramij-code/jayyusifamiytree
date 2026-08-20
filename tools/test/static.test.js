@@ -381,6 +381,28 @@ module.exports = function ({ describe, ok, eq }) {
     ok(/_showHistory = true/.test(fn), 'openReviewHistory forces history on');
   });
 
+  describe('both canvas buttons exist and are wired on both pages', () => {
+    for (const page of ['index.html', 'admin.html']) {
+      const html = read(page);
+      ok(/id="canvas-controls"/.test(html), page + ' has the control wrapper');
+      ok(/id="btn-reset-view"[\s\S]{0,200}canvas-btn/.test(html), page + ': reset uses .canvas-btn');
+      ok(/id="btn-full-tree"[\s\S]{0,200}canvas-btn/.test(html), page + ': full-tree uses .canvas-btn');
+      // The label must not promise expansion — it shows the tree COLLAPSED.
+      const btn = html.slice(html.indexOf('id="btn-full-tree"'), html.indexOf('</button>', html.indexOf('id="btn-full-tree"')));
+      ok(/collapsed/.test(btn), page + ": the title says collapsed, not 'expand every branch'");
+    }
+    for (const f of ['assets/js/viewer.js', 'assets/js/admin/admin.js']) {
+      const src = codeOnly(read(f));
+      ok(/btn-full-tree'\)\.addEventListener\('click', showFullTree\)/.test(src),
+         f + ' wires the full-tree button');
+    }
+    // The wrapper carries the position; the buttons must not fight it.
+    const base = read('assets/css/base.css');
+    ok(/#canvas-controls \{[\s\S]{0,200}position: absolute/.test(base),
+       'the wrapper is positioned, so the three override rules move the pair');
+    ok(/\.canvas-btn \{/.test(base), 'and the buttons share one look');
+  });
+
   describe('the resize watcher is debounced and cannot break a boot', () => {
     // A window drag fires resize continuously; re-applying a transform per event
     // fights the drag and thrashes layout. And a view convenience must never stop the

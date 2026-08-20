@@ -28,6 +28,20 @@ function initReviewUI() {
   if (FTSupa.configured()) refreshReview(true).catch(() => {});
 }
 
+// Open the drawer showing history, so decisions already made are visible.
+//
+// Pending cards alone do not explain "1 DECISION UNPUBLISHED": a rejected
+// proposal has LEFT the pending list, so the only place it appears is the
+// history, where its card reads بانتظار COMMIT.
+function openReviewHistory() {
+  const drawer = document.getElementById('review-drawer');
+  if (!drawer) return;
+  drawer.classList.add('open');
+  _showHistory = true;
+  if (_historyLimit === 0) _historyLimit = FTReview.historyPage();
+  refreshReview();
+}
+
 function reviewStatus(text, kind) {
   const el = document.getElementById('review-status');
   if (!el) return;

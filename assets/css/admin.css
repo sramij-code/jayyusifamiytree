@@ -619,6 +619,14 @@ body:not(.admin-mode) #app { padding-top: 0; }
   text-decoration: line-through;
 }
 
+/* Only interactive when there is something to explain, so a clean bar does not
+   invite a pointless click. */
+#family-state.clickable {
+  cursor: pointer;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+
 /* A withdrawal request. Dashed and neutral rather than red: it is the proposer's
    ASK, not an outcome and not an error. */
 .review-withdrawn {

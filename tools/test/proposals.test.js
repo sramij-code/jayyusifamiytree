@@ -755,6 +755,113 @@ module.exports = function ({ describe, ok, eq }) {
     });
   });
 
+  describe('an unpublished decision says what it is about', () => {
+    // "● 1 DECISION UNPUBLISHED" named a quantity and explained nothing, so a
+    // reviewer could not tell what COMMIT would publish — and a decided proposal
+    // is no longer in the pending list, so it was not visible anywhere either.
+    const net = async (url) => {
+      const u = String(url);
+      if (u.indexOf('proposals-reviewed.json') !== -1) return { ok: false, status: 404 };
+      if (u.indexOf('changes.jsonl') !== -1) return { ok: true, status: 200, text: async () => '' };
+      return { ok: true, status: 200, json: async () => ([
+        { id: 'known', created_at: '2026-08-18T00:00:00Z', author_node: 'p143',
+          author_name: 'هشام', note: null,
+          ops: [{ op: 'add_wife', target: 'p2', id: 'pk9', name: 'سلمى',
+                  describe: '+ سلمى · زوجة of عساف (p2)' }] },
+      ]) };
+    };
+    const a = boot({ store: {}, role: 'admin', net });
+    return run(a, 'FTReview.load()').then(() => {
+      run(a, 'FTReview.reject(FTReview.all()[0]);');
+
+      const d = run(a, 'FTReview.uncommittedDetailed()');
+      eq(d.length, 1, 'one decision is pending publish');
+      eq(d[0].id, 'known', 'identified by proposal id');
+      eq(d[0].decision, 'rejected', 'with the decision');
+      ok(d[0].known, 'joined against the loaded inbox');
+      ok(/rejected/.test(d[0].label), 'the label says what was decided', d[0].label);
+      ok(/هشام/.test(d[0].label), 'and who proposed it', d[0].label);
+      ok(/سلمى/.test(d[0].label), 'and what it proposed', d[0].label);
+
+      // It must be findable in the UI, and pending no longer contains it — which
+      // is exactly why the drawer has to show history.
+      eq(run(a, 'FTReview.pending().length'), 0, 'it has left the pending list');
+      eq(run(a, "FTReview.history().filter(function(r){return r.id==='known';}).length"), 1,
+         'but history still lists it, where the card reads بانتظار COMMIT');
+      ok(!run(a, "FTReview.decisionsFor('known')[0].committed"),
+         'and it is marked as not yet committed');
+    });
+  });
+
+  describe('a decision for an unknown proposal degrades honestly', () => {
+    // load() may not have run, or the row may be gone from the inbox. Inventing a
+    // description would be worse than showing the id.
+    const a = boot({ store: {
+      ftRejectedProposals: JSON.stringify([
+        { id: 'ghost-1234-5678', decision: 'rejected', at: '2026-08-18T00:00:00Z', note: null },
+      ]),
+    }, role: 'admin' });
+    const d = run(a, 'FTReview.uncommittedDetailed()');
+    eq(d.length, 1, 'the decision is still reported');
+    eq(d[0].known, false, 'flagged as not matched to a row');
+    ok(/ghost-12/.test(d[0].label), 'and falls back to the id', d[0].label);
+    ok(/not in the loaded inbox/.test(d[0].label), 'saying why it cannot describe it', d[0].label);
+  });
+
+  describe('the manifest lists exactly what COMMIT would publish', () => {
+    const net = async (url) => {
+      const u = String(url);
+      if (u.indexOf('proposals-reviewed.json') !== -1) return { ok: false, status: 404 };
+      if (u.indexOf('changes.jsonl') !== -1) return { ok: true, status: 200, text: async () => '' };
+      return { ok: true, status: 200, json: async () => ([
+        { id: 'm1', created_at: '2026-08-18T00:00:00Z', author_node: 'p143',
+          author_name: 'ليلى', note: null,
+          ops: [{ op: 'add_wife', target: 'p2', id: 'pml', name: 'سلمى', describe: '+ سلمى · زوجة' }] },
+      ]) };
+    };
+    const a = boot({ store: {}, role: 'admin', net });
+
+    // Nothing pending at all -> nothing to say.
+    eq(run(a, 'FTReview.unpublishedManifest()'), '', 'a clean state produces an empty manifest');
+
+    return run(a, 'FTReview.load()').then(() => {
+      // A tree edit only. Clicking opens the PROPOSALS drawer, which explains
+      // nothing about an edit, so the invitation must not appear.
+      run(a, `FTChangeLog.record({op:'rename', target:'p3', from:'a', to:'b', describe:'~ p3: a → b'});`);
+      const editsOnly = run(a, 'FTReview.unpublishedManifest()');
+      ok(/Tree edits \(1\)/.test(editsOnly), 'edits are listed', editsOnly);
+      ok(/~ p3: a → b/.test(editsOnly), 'using the changelog describe', editsOnly);
+      ok(!/Review decisions/.test(editsOnly), 'with no decisions section', editsOnly);
+      ok(!/Click to open/.test(editsOnly),
+         'and no invitation to open the proposals drawer', editsOnly);
+
+      // Add a decision: now both sections, and the invitation is apt.
+      run(a, 'FTReview.reject(FTReview.all()[0]);');
+      const both = run(a, 'FTReview.unpublishedManifest()');
+      ok(/Tree edits \(1\)/.test(both), 'edits still listed', both);
+      ok(/Review decisions \(1\)/.test(both), 'decisions listed too', both);
+      ok(/ليلى/.test(both), 'naming the proposer', both);
+      ok(/سلمى/.test(both), 'and what was proposed', both);
+      ok(/rejected/.test(both), 'and what was decided', both);
+      ok(/Click to open the proposals drawer/.test(both),
+         'now the invitation is apt', both);
+      // Sections separated, so the tooltip is readable rather than one run-on line.
+      ok(both.indexOf('\n\n') !== -1, 'the two sections are separated', JSON.stringify(both));
+    });
+  });
+
+  describe('the manifest is capped so a tooltip stays a tooltip', () => {
+    const a = boot({ store: {}, role: 'admin' });
+    run(a, `for (var i = 0; i < 20; i++) {
+      FTChangeLog.record({op:'rename', target:'p3', describe:'~ edit ' + i});
+    }`);
+    const m = run(a, 'FTReview.unpublishedManifest()');
+    ok(/Tree edits \(20\)/.test(m), 'the true total is reported');
+    const listed = m.split('\n').filter(l => /^  ~ edit /.test(l)).length;
+    eq(listed, 8, 'but only the first 8 are spelled out');
+    ok(/… and 12 more/.test(m), 'and the remainder is named, not silently dropped', m);
+  });
+
   describe('crafted proposals cannot break the domain rules', () => {
     const cases = [
       ['add_father to someone who already has one',

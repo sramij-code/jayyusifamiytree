@@ -226,6 +226,34 @@ module.exports = function ({ describe, ok, eq }) {
        'and does not recompute the count from pending() itself');
   });
 
+  describe('the unpublished indicator is explainable and clickable', () => {
+    const pub = read('assets/js/admin/publish.js');
+    const adm = read('assets/js/admin/admin.js');
+    const rui = read('assets/js/admin/review-ui.js');
+    const css = read('assets/css/admin.css');
+
+    // The manifest lives in review.js, not publish.js: publish.js pulls in FTTheme,
+    // which the harness cannot load, so keeping it there made it untestable.
+    const rev = read('assets/js/admin/review.js');
+    ok(/unpublishedManifest: function/.test(rev), 'review.js builds the manifest');
+    ok(/uncommittedDetailed\(\)/.test(rev), 'and describes decisions, not just counts');
+    ok(/el\.title = bits\.length === 0 \? '' : FTReview\.unpublishedManifest\(\)/.test(pub),
+       'publish.js puts it on the indicator title rather than leaving it blank');
+    ok(/FTReview\.unpublishedManifest\(\)/.test(
+         pub.slice(pub.indexOf('HIDDEN BY STALE DRAFT'), pub.indexOf('} else {', pub.indexOf('HIDDEN BY STALE DRAFT')))),
+       'and also in the stale-draft state, where knowing matters most');
+    ok(/classList\.toggle\('clickable'/.test(pub), 'the indicator is marked clickable when it has something to say');
+    ok(/#family-state\.clickable/.test(css), 'and styled so it looks interactive');
+    ok(/familyState\.addEventListener/.test(adm), 'admin binds the click');
+    ok(/classList\.contains\('clickable'\)/.test(adm),
+       'and gates it on .clickable, so a clean indicator is genuinely inert');
+    ok(/function openReviewHistory/.test(rui), 'which opens the drawer with history shown');
+    // History, specifically: a decided proposal has left the pending list.
+    const fn = rui.slice(rui.indexOf('function openReviewHistory'),
+                         rui.indexOf('\n}', rui.indexOf('function openReviewHistory')));
+    ok(/_showHistory = true/.test(fn), 'openReviewHistory forces history on');
+  });
+
   describe('both node class builders honour markedForRemovalIds', () => {
     // The suite cannot see rendering, so this is checked structurally. render.js
     // builds the class list TWICE — once for entering nodes and once for the

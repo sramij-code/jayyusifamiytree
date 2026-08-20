@@ -33,7 +33,12 @@ function uiConsistent(ctx) {
 
   const edits = run(ctx, 'FTChangeLog.count()');
   const decisions = run(ctx, 'FTReview.uncommitted().length');
-  const hidden = run(ctx, 'FTChangeLog.draftDivergence().missing.length');
+  // BOTH directions. The oracle read only `missing`, and inherited exactly the blind
+  // spot the code had: an extras-only stale draft was a dead end (tooltip telling the
+  // user to press a disabled button) and all 794 checks passed. An oracle that shares
+  // the implementation's assumption cannot catch the implementation's bug.
+  const div = run(ctx, 'FTChangeLog.draftDivergence()');
+  const hidden = div.missing.length + div.extra.length;
   const blocked = !!run(ctx, '!!FTReview.commitBlockedReason()');
   const connected = run(ctx, 'FTGitHub.hasToken()');
 
@@ -76,7 +81,8 @@ function uiConsistent(ctx) {
   if (hidden > 0) {
     const discard = el('btn-discard-family');
     if (!discard || discard.disabled) {
-      bad.push('a stale draft hides ' + hidden + ' person(s) and DISCARD is disabled — no way out');
+      bad.push('the draft diverges by ' + hidden + ' person(s) (missing ' + div.missing.length +
+             ', extra ' + div.extra.length + ') and DISCARD is disabled — no way out');
     }
     const exp = el('btn-publish-family');
     if (exp && !exp.disabled) {
@@ -530,6 +536,48 @@ module.exports = function ({ describe, ok, eq }) {
     for (const ev of ['publish.commit.start', 'publish.commit.ok', 'publish.commit.fail']) {
       ok(src.indexOf(ev) !== -1, 'instrumented: ' + ev);
     }
+  });
+
+  describe('an extras-only stale draft is not a dead end', () => {
+    // The guard added for the "resurrect a deleted person" case reopened the dead end
+    // in the MIRROR direction: the indicator said ▲ 1 STALE EXTRA IN DRAFT, the tooltip
+    // said "Press DISCARD EDITS", the button was disabled, and discardFamilyDraft
+    // returned early. DevTools was again the only way out.
+    //
+    // It shipped, and the whole suite passed — because uiConsistent() read only
+    // `missing` too. An oracle that shares the implementation's assumption cannot catch
+    // the implementation's bug.
+    const committed = loadFamily();
+    const pre = JSON.parse(JSON.stringify(committed));
+    pre.people['pghost'] = { id: 'pghost', name: 'شبح', gender: 'female', generation: 2 };
+    pre.partnerships.push({ id: 'ppghost', partners: ['p4', 'pghost'], children: [] });
+
+    const a = bootUI({ store: {
+      'ftFamilyDraft:admin': JSON.stringify({ people: pre.people, partnerships: pre.partnerships }),
+      'ftChangeLog:admin': '[]',
+    }, role: 'admin' });
+    run(a, 'if (FTChangeLog.hasDraft()) FTChangeLog.applyDraft();');
+    run(a, 'markFamilyDirty();');
+
+    const d = a._doc;
+    const div = run(a, 'FTChangeLog.draftDivergence()');
+    eq(div.missing.length, 0, 'nothing is missing');
+    eq(div.extra.length, 1, 'exactly one stale extra');
+    eq(run(a, 'FTChangeLog.count()'), 0, 'and no pending edits');
+
+    ok(/STALE EXTRA/.test(d.getElementById('family-state').textContent),
+       'the indicator names the problem');
+    const discard = d.getElementById('btn-discard-family');
+    ok(!discard.disabled, 'DISCARD is ENABLED — there is a way out');
+    ok(discard.click(), 'and it responds to a click');
+    ok(/CONFIRM/.test(discard.textContent),
+       'arming, labelled honestly since no edits are lost', discard.textContent);
+
+    // The tooltip must not name a control the user cannot use.
+    if (/DISCARD EDITS/.test(d.getElementById('family-state').title)) {
+      ok(!discard.disabled, 'the tooltip names DISCARD EDITS, so it must be usable');
+    }
+    eq(uiConsistent(a), [], 'and nothing in the UI contradicts');
   });
 
   describe('the suite never writes to data/', () => {

@@ -112,7 +112,8 @@ function markFamilyDirty() {
       // not say about what. List exactly what COMMIT would publish.
       el.title = bits.length === 0 ? '' : FTReview.unpublishedManifest();
     }
-    el.classList.toggle('clickable', bits.length > 0 || hidden.missing.length > 0);
+    el.classList.toggle('clickable',
+                        bits.length > 0 || hidden.missing.length > 0 || hidden.extra.length > 0);
   }
 
   const commitBtn = document.getElementById('btn-commit-family');
@@ -160,7 +161,11 @@ function markFamilyDirty() {
     // Enabled for a stale draft with NO edits too. That combination was a dead
     // end: the button was disabled and discardFamilyDraft returned early, so a
     // draft hiding committed people could only be cleared from DevTools.
-    discardBtn.disabled = n === 0 && hidden.missing.length === 0;
+    // BOTH directions, or an extras-only draft is a dead end: the tooltip says
+    // "Press DISCARD EDITS" while the button is disabled and the handler returns
+    // early. That is incident 3 reopened in the mirror direction by the guard added
+    // for incident 4 — which is the argument against adding a seventh guard.
+    discardBtn.disabled = n === 0 && hidden.missing.length === 0 && hidden.extra.length === 0;
   }
 
   const undoBtn = document.getElementById('btn-undo');
@@ -216,7 +221,8 @@ function discardFamilyDraft() {
   // A stale draft with no edits still has to be discardable: it hides people who
   // ARE in data/family.js, and until this it was unreachable from the UI — the
   // button was disabled and this returned early, leaving DevTools as the only way.
-  const stale = FTChangeLog.draftDivergence().missing.length;
+  const div = FTChangeLog.draftDivergence();
+  const stale = div.missing.length + div.extra.length;
   if (n === 0 && stale === 0) return;
 
   if (!_discardArmed) {

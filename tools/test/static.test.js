@@ -419,6 +419,33 @@ module.exports = function ({ describe, ok, eq }) {
     ok(/FTSupa\.configured\(\)/.test(init), 'and does not try when Supabase is unconfigured');
   });
 
+  describe('the freshness sidecar is published and checked', () => {
+    const gh = codeOnly(read('assets/js/admin/github.js'));
+    ok(/PUBLISHED_PATH/.test(gh), 'github.js knows the sidecar path');
+    ok(/entries\.push\(\{ path: PUBLISHED_PATH/.test(gh), 'and commits it with the family blob');
+    // The SAME stamp in both, or a check would compare two different publishes.
+    ok(/let familyStamp/.test(gh), 'one stamp per publish');
+    ok(/publishedAt: familyStamp/.test(gh), 'used in family.js');
+    ok(/publishedAt: stampedAt/.test(gh), 'and in the sidecar');
+
+    const ps = codeOnly(read('assets/js/proposal-status.js'));
+    ok(/checkFreshness/.test(ps), 'the check is shared by both pages');
+    ok(/published\.json\?t=/.test(ps), 'cache-busted, since that is the whole point');
+    ok(/'unknown'/.test(ps), "and has an 'unknown' state distinct from stale");
+
+    // Both pages must wire the banner, and it must not break a boot.
+    for (const page of ['index.html', 'admin.html']) {
+      ok(/id="stale-data-banner"/.test(read(page)), page + ' has the banner element');
+    }
+    const th = codeOnly(read('assets/js/theme.js'));
+    ok(/function initStaleDataCheck/.test(th), 'theme.js owns the banner (both pages load it)');
+    ok(/r\.state !== 'stale'/.test(th), "and only shows it for 'stale', never 'unknown'");
+    ok(/\.catch\(/.test(th), 'and cannot break a boot');
+    for (const f of ['assets/js/viewer.js', 'assets/js/admin/admin.js']) {
+      ok(/initStaleDataCheck/.test(codeOnly(read(f))), f + ' wires it');
+    }
+  });
+
   describe('the escape hatches exist and are wired', () => {
     const cl = codeOnly(read('assets/js/changelog.js'));
     ok(/freshRequested: function/.test(cl), 'the URL hatch exists');

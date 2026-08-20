@@ -1705,6 +1705,64 @@ module.exports = function ({ describe, ok, eq }) {
     });
   });
 
+  describe('a page showing older data than published says so', () => {
+    // data/family.js arrives via a plain <script src> — no query string, so neither the
+    // browser nor the Pages CDN can be told to revalidate it. A stale copy looks exactly
+    // like a broken site: people who were published are simply absent. That cost three
+    // separate debugging rounds, the last one with the owner's admin page holding a copy
+    // from before two wives were added.
+    //
+    // Checked against a ~90-byte sidecar rather than by re-fetching 300KB.
+    const sidecar = (publishedAt, people) => async (url) => {
+      if (String(url).indexOf('published.json') === -1) return { ok: false, status: 404 };
+      return { ok: true, status: 200,
+               text: async () => JSON.stringify({ publishedAt, people, partnerships: 1 }) };
+    };
+    const fam = (publishedAt) => {
+      const f = JSON.parse(JSON.stringify(loadFamily()));
+      if (publishedAt === undefined) delete f.publishedAt; else f.publishedAt = publishedAt;
+      return f;
+    };
+
+    const STAMP = '2026-08-20T22:55:12.557Z';
+    const OLDER = '2026-08-19T02:00:00.000Z';
+
+    // Same stamp -> fresh.
+    const a = boot({ role: 'admin', family: fam(STAMP), net: sidecar(STAMP, 1748) });
+    return run(a, 'FTProposalStatus.checkFreshness()').then(r => {
+      eq(r.state, 'fresh', 'matching stamps are fresh');
+
+      // Older local copy -> stale, and it must report BOTH stamps so the user can see
+      // how far behind they are.
+      const b = boot({ role: 'admin', family: fam(OLDER), net: sidecar(STAMP, 1748) });
+      return run(b, 'FTProposalStatus.checkFreshness()').then(r2 => {
+        eq(r2.state, 'stale', 'an older local copy is stale');
+        eq(r2.mine, OLDER, 'reporting what this page has');
+        eq(r2.latest, STAMP, 'and what is published');
+
+        // The owner's actual case: no stamp at all, because the copy predates the field.
+        const c = boot({ role: 'admin', family: fam(undefined), net: sidecar(STAMP, 1748) });
+        return run(c, 'FTProposalStatus.checkFreshness()').then(r3 => {
+          eq(r3.state, 'stale',
+             'an UNSTAMPED copy is stale: the stamp is written at publish time, so a file ' +
+             'without one necessarily predates that publish');
+          eq(r3.mine, null, 'and says it has no stamp');
+
+          // 'unknown' must never be presented as stale — file://, offline, or before the
+          // sidecar has ever been published.
+          const d = boot({ role: 'admin', family: fam(STAMP), net: async () => ({ ok: false, status: 404 }) });
+          return run(d, 'FTProposalStatus.checkFreshness()').then(r4 => {
+            eq(r4.state, 'unknown', 'a missing sidecar is unknown, NOT stale');
+            const e = boot({ role: 'admin', family: fam(STAMP), net: async () => { throw new TypeError('offline'); } });
+            return run(e, 'FTProposalStatus.checkFreshness()').then(r5 => {
+              eq(r5.state, 'unknown', 'and so is offline');
+            });
+          });
+        });
+      });
+    });
+  });
+
   describe('crafted proposals cannot break the domain rules', () => {
     const cases = [
       ['add_father to someone who already has one',

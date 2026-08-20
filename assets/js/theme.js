@@ -54,3 +54,23 @@
 
 // Expose as a real binding for the classic scripts that consume it.
 var FTTheme = window.FTTheme;
+
+// The stale-data banner. Here because both pages load theme.js and neither owns it.
+//
+// It asks the user to reload rather than reloading for them: an automatic reload
+// during an edit would lose unsent work, and this state is reached precisely when
+// something unexpected is on screen.
+function initStaleDataCheck() {
+  const el = document.getElementById('stale-data-banner');
+  if (!el || typeof FTProposalStatus === 'undefined') return;
+  FTProposalStatus.checkFreshness().then(r => {
+    if (r.state !== 'stale') return;   // 'unknown' must never read as stale
+    el.hidden = false;
+    el.textContent = 'بياناتك قديمة · this page is showing older data (' +
+      (r.mine ? String(r.mine).replace('T', ' ').slice(0, 16) : 'unstamped') +
+      ' vs ' + String(r.latest).replace('T', ' ').slice(0, 16) +
+      ') — أعد التحميل بالكامل · hard-reload to get the current tree';
+    el.title = 'A plain <script src> cannot be cache-busted, so the browser or the ' +
+               'CDN may hold data/family.js. Reload with Shift/Option held.';
+  }).catch(() => { /* never break a boot over a freshness check */ });
+}

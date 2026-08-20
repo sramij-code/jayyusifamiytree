@@ -19,6 +19,8 @@ function initEventListeners() {
   // typeof-guarded like the other optional wiring here: render.js owns it, and
   // the test harness deliberately never loads the renderer.
   if (typeof initViewportWatch === 'function') initViewportWatch();
+  // Tell the user if this page is showing older data than what is published.
+  if (typeof initStaleDataCheck === 'function') initStaleDataCheck();
   document.getElementById('tree-svg').addEventListener('click', () => hideNodePanel());
   document.getElementById('btn-close-panel').addEventListener('click', () => hideNodePanel());
   document.getElementById('btn-expand-subtree').addEventListener('click', () => {

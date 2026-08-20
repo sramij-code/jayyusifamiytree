@@ -79,7 +79,36 @@ var FTProposalStatus = window.FTProposalStatus = (function () {
     }
   }
 
+  // Is the data/family.js this page loaded still the current one?
+  //
+  // family.js comes in via a plain <script src> with no query string, so neither the
+  // browser nor the Pages CDN can be told to revalidate it. A stale copy looks exactly
+  // like a broken site: a person was published, the file in the browser predates it,
+  // and they are simply absent. That has cost three separate debugging rounds.
+  //
+  // Checked against a ~90-byte sidecar rather than by re-fetching 300KB. Returns
+  // 'fresh' | 'stale' | 'unknown' — 'unknown' over file://, offline, or before the
+  // sidecar has ever been published, and 'unknown' must never be presented as stale.
+  async function checkFreshness() {
+    const mine = (typeof familyData !== 'undefined' && familyData && familyData.publishedAt) || null;
+    try {
+      const res = await fetch('data/published.json?t=' + Date.now(), { cache: 'no-store' });
+      if (!res.ok) return { state: 'unknown', mine: mine, latest: null };
+      const doc = JSON.parse(await res.text());
+      const latest = doc && doc.publishedAt ? String(doc.publishedAt) : null;
+      if (!latest) return { state: 'unknown', mine: mine, latest: null };
+      // An unstamped local copy with a stamped sidecar IS stale: the stamp was added at
+      // publish time, so a file without one necessarily predates that publish.
+      if (!mine) return { state: 'stale', mine: null, latest: latest, people: doc.people || null };
+      return { state: mine === latest ? 'fresh' : 'stale', mine: mine, latest: latest,
+               people: doc.people || null };
+    } catch (e) {
+      return { state: 'unknown', mine: mine, latest: null };
+    }
+  }
+
   return {
+    checkFreshness: checkFreshness,
     fetchApplied: fetchApplied,
     fetchDecisions: fetchDecisions,
 

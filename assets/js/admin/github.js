@@ -70,6 +70,15 @@ var FTGitHub = window.FTGitHub = (function () {
   const TOKEN_KEY = 'ftGitHubToken';
 
   const FAMILY_PATH   = 'data/family.js';
+  // A ~90-byte sidecar carrying the same publishedAt as family.js.
+  //
+  // family.js is loaded by a plain <script src> — no query string, so no cache
+  // busting — and both the browser and the Pages CDN hold it for a long time. That
+  // has now cost the owner three separate debugging rounds: a person was published,
+  // the file in the browser predated it, and the site looked broken. 300KB is far too
+  // big to re-fetch on every load just to check, so publish the stamp separately and
+  // compare that instead.
+  const PUBLISHED_PATH = 'data/published.json';
   const LOG_PATH      = 'data/changes.jsonl';
   const REVIEWED_PATH = 'data/proposals-reviewed.json';
 
@@ -236,7 +245,11 @@ var FTGitHub = window.FTGitHub = (function () {
                        '\n\nAlso recorded ' + decisionText + '\n\nPublished from admin.html');
   }
 
+  // One stamp per publish, shared by family.js and the sidecar.
+  let familyStamp = null;
+
   function familyFileBody() {
+    familyStamp = new Date().toISOString();
     const out = {
       people: state.people,
       partnerships: state.partnerships,
@@ -246,7 +259,7 @@ var FTGitHub = window.FTGitHub = (function () {
       // relative to it. Note for tools/rebuild_from_excel.py: this field is added at
       // publish time and will not appear in a rebuild, so a byte-identical comparison
       // must ignore it.
-      publishedAt: new Date().toISOString(),
+      publishedAt: familyStamp,
     };
     // Byte-for-byte the shape data/family.js already has, so the committed
     // diff is a data diff and not a reformat of the whole file.
@@ -382,8 +395,20 @@ var FTGitHub = window.FTGitHub = (function () {
           });
           // Never one without the other: a tree whose changelog does not describe
           // it is worse than either file being a commit behind.
-          entries.push({ path: FAMILY_PATH, mode: '100644', type: 'blob', sha: familyBlob.sha });
-          entries.push({ path: LOG_PATH,    mode: '100644', type: 'blob', sha: logBlob.sha });
+          // The sidecar carries the SAME stamp as the family blob, or a freshness check
+          // would compare two different publishes and cry wolf.
+          const stampedAt = familyStamp;
+          const sidecar = await api(base + '/git/blobs', {
+            method: 'POST',
+            body: JSON.stringify({ content: utf8ToBase64(JSON.stringify({
+              publishedAt: stampedAt,
+              people: Object.keys(state.people).length,
+              partnerships: state.partnerships.length,
+            }, null, 2) + '\n'), encoding: 'base64' }),
+          });
+          entries.push({ path: FAMILY_PATH,    mode: '100644', type: 'blob', sha: familyBlob.sha });
+          entries.push({ path: LOG_PATH,       mode: '100644', type: 'blob', sha: logBlob.sha });
+          entries.push({ path: PUBLISHED_PATH, mode: '100644', type: 'blob', sha: sidecar.sha });
         }
 
         if (pendingDecisions.length > 0) {

@@ -19,3 +19,5 @@
 {"ts":"2026-08-17T02:00:20.140Z","by":"مقلد","id":"p7jsup317","op":"add_wife","name":"Mona1","gender":"female","target":"p4","describe":"+ Mona1 · زوجة of محمد (p4)","generation":2,"targetName":"محمد","fromProposal":"4eea8db9-8906-41b1-ba11-bba6d84be0bb"}
 {"ts":"2026-08-17T19:55:32.935Z","by":"مقلد","op":"delete_person","target":"pl153di8h","name":"Ola1","describe":"− Ola1 (pl153di8h)","fromProposal":"d257ee7f-9c18-4c93-a170-7d0fe37f6d80"}
 {"ts":"2026-08-20T02:44:44.240Z","by":"admin","op":"delete_person","target":"p7jsup317","name":"Mona1","describe":"− Mona1 (p7jsup317)"}
+{"ts":"2026-08-20T22:55:08.503Z","by":"عادل","op":"add_wife","target":"p4","id":"pexyie4kp","name":"Mona2","describe":"+ Mona2 · زوجة of محمد (p4)","fromProposal":"0b5aeaa4-131f-4444-8b7d-7dd0784ca911"}
+{"ts":"2026-08-20T22:55:08.509Z","by":"عادل","op":"add_wife","target":"p6","id":"phhcxmf4j","name":"Rola1","describe":"+ Rola1 · زوجة of محمود (p6)","fromProposal":"0b5aeaa4-131f-4444-8b7d-7dd0784ca911"}

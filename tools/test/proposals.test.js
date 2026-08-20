@@ -1638,6 +1638,73 @@ module.exports = function ({ describe, ok, eq }) {
     eq(run(a, 'isLocalOnly("toString")'), false, "nor 'toString'");
   });
 
+  describe('an approved proposal reads as approved on a fresh load', () => {
+    // The reported symptom: proposal approved and committed, refresh the page, still
+    // looks outstanding. The status derivation was right all along — what was missing
+    // is that NOTHING fetched it at boot. admin.html loads its badge count on init
+    // (review-ui.js) while the propose page only fetched when the drawer was opened,
+    // so the bar could only say "… N اقتراحات مُرسلة" — sent, status not checked.
+    const APPROVED = 'appr-1';
+    const rows = [
+      { id: APPROVED, created_at: '2026-08-20T22:54:00Z', author_node: 'p143',
+        author_name: 'ر', note: null,
+        ops: [{ op: 'add_wife', target: 'p4', id: 'pmona2', name: 'Mona2', describe: '+ Mona2' }] },
+    ];
+    const net = async (url) => {
+      const u = String(url);
+      if (u.indexOf('changes.jsonl') !== -1) {
+        // The line a commit writes after approval.
+        return { ok: true, status: 200, text: async () =>
+          JSON.stringify({ op: 'add_wife', describe: '+ Mona2', fromProposal: APPROVED }) + '\n' };
+      }
+      if (u.indexOf('proposals-reviewed.json') !== -1) return { ok: false, status: 404 };
+      return { ok: true, status: 200, json: async () => rows };
+    };
+    const store = { ftProposeMode: 'true', ftHomeNode: 'p143',
+                    ftProposalsSent: JSON.stringify([{ id: APPROVED, ts: 'x', count: 1 }]) };
+    const v = boot({ store, role: 'propose', net });
+
+    // Before any fetch the bar must NOT claim a status — that is the honest state.
+    const before = run(v, 'FTPropose.barState()');
+    eq(before.state, 'unknown', 'before checking, the state is unknown, not pending');
+    eq(before.everSent, 1, 'though it knows something was sent');
+
+    return run(v, 'FTPropose.mine()').then(() => {
+      eq(run(v, 'FTPropose.lastMine()[0]._state'), 'approved',
+         'once fetched, the approved proposal reads as approved');
+      const after = run(v, 'FTPropose.barState()');
+      eq(after.state, 'settled', 'and the bar says everything is reviewed');
+      eq(after.pending, 0, 'with nothing pending');
+      eq(after.approved, 1, 'and one approved');
+    });
+  });
+
+  describe('mine() never lists the same proposal twice', () => {
+    // Both queries feeding mine() returning the same row showed the proposal twice in
+    // the visitor's own list. Caught while checking the live data against the real
+    // deployed files: 7 proposals rendered as 14 rows.
+    const rows = [
+      { id: 'a1', created_at: '2026-08-20T03:00:00Z', author_node: 'p143', author_name: 'ر', note: null, ops: [] },
+      { id: 'a2', created_at: '2026-08-20T02:00:00Z', author_node: 'p143', author_name: 'ر', note: null, ops: [] },
+    ];
+    // A server that answers BOTH queries with every row — the worst case.
+    const net = async (url) => {
+      const u = String(url);
+      if (u.indexOf('changes.jsonl') !== -1) return { ok: true, status: 200, text: async () => '' };
+      if (u.indexOf('proposals-reviewed.json') !== -1) return { ok: false, status: 404 };
+      return { ok: true, status: 200, json: async () => rows };
+    };
+    const v = boot({ store: {
+      ftProposeMode: 'true', ftHomeNode: 'p143',
+      // an id NOT returned by the author_node query, forcing the second query too
+      ftProposalsSent: JSON.stringify([{ id: 'zz-not-mine', ts: 'x', count: 1 }]),
+    }, role: 'propose', net });
+    return run(v, 'FTPropose.mine()').then(() => {
+      const ids = run(v, 'FTPropose.lastMine().map(function(r){return r.id;})');
+      eq(ids.sort(), ['a1', 'a2'], 'each proposal appears exactly once');
+    });
+  });
+
   describe('crafted proposals cannot break the domain rules', () => {
     const cases = [
       ['add_father to someone who already has one',

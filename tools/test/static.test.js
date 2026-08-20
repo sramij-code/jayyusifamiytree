@@ -403,6 +403,22 @@ module.exports = function ({ describe, ok, eq }) {
     ok(/\.canvas-btn \{/.test(base), 'and the buttons share one look');
   });
 
+  describe('both pages check proposal status at boot', () => {
+    // The asymmetry behind "approved but still looks outstanding": admin fetched its
+    // badge on init, the propose page fetched only when the drawer was opened.
+    const rui = codeOnly(read('assets/js/admin/review-ui.js'));
+    const pui = codeOnly(read('assets/js/propose-ui.js'));
+    ok(/refreshReview\(true\)/.test(rui), 'admin fetches its badge count at boot');
+    ok(/FTPropose\.mine\(\)/.test(pui.slice(pui.indexOf('function initMineUI'),
+                                              pui.indexOf('function mineStatus'))),
+       'and the propose page now fetches status at boot too');
+    // It must not throw or block: an unreachable inbox has to leave the honest
+    // 'unknown' state rather than breaking the page.
+    const init = pui.slice(pui.indexOf('function initMineUI'), pui.indexOf('function mineStatus'));
+    ok(/\.catch\(/.test(init), 'and tolerates failure rather than breaking the boot');
+    ok(/FTSupa\.configured\(\)/.test(init), 'and does not try when Supabase is unconfigured');
+  });
+
   describe('the escape hatches exist and are wired', () => {
     const cl = codeOnly(read('assets/js/changelog.js'));
     ok(/freshRequested: function/.test(cl), 'the URL hatch exists');

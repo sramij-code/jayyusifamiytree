@@ -358,6 +358,21 @@ function initMineUI() {
   const btn = document.getElementById('btn-my-proposals');
   if (!btn) return;
 
+  // Check status at boot, the way admin.html already does for its badge.
+  //
+  // Without this the bar could only say "… N اقتراحات مُرسلة" — sent, status not
+  // checked — until the visitor happened to open the drawer. So a proposal approved
+  // and published days ago still read as outstanding on a fresh load, which is
+  // exactly what it looks like when nothing has been checked. Quiet and
+  // failure-tolerant: an unreachable inbox leaves the honest 'unknown' state.
+  if (FTSupa.configured() && FTPropose.sent().length > 0) {
+    FTPropose.mine().then(() => {
+      markProposeState();
+      const drawer = document.getElementById('mine-drawer');
+      if (drawer && drawer.classList.contains('open')) renderMineList();
+    }).catch(() => { /* leave it unknown rather than claiming a status */ });
+  }
+
   btn.addEventListener('click', () => {
     const drawer = document.getElementById('mine-drawer');
     const opening = !drawer.classList.contains('open');

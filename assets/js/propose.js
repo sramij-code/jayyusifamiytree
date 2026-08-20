@@ -208,7 +208,17 @@ var FTPropose = window.FTPropose = (function () {
       const dec = await FTProposalStatus.fetchDecisions();
       const decMap = FTProposalStatus.latestPerId(dec.list);
 
-      const all = (byNode || []).concat(byId);
+      // Deduped by id. Two queries feed this — author_node and a chunked id list — and
+      // `missing` is meant to exclude anything the first already returned, so overlap
+      // should be impossible. Belt and braces anyway: a duplicated row shows the same
+      // proposal twice in the visitor's own list, and this project has already shipped
+      // duplicate-record bugs in two other places.
+      const seen = new Set();
+      const all = (byNode || []).concat(byId).filter(r => {
+        if (!r || !r.id || seen.has(r.id)) return false;
+        seen.add(r.id);
+        return true;
+      });
 
       // Withdrawal rows are requests about other rows, not proposals themselves.
       const withdrawn = new Set();

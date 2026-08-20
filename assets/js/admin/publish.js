@@ -69,14 +69,20 @@ function markFamilyDirty() {
       el.title = 'This browser\'s draft is missing ' + hidden.missing.length +
         ' person(s) that are in data/family.js: ' + hidden.names.join(', ') +
         (hidden.missing.length > hidden.names.length ? ', …' : '') +
-        '. Commit any pending edits, then DISCARD DRAFT to resync.';
+        '. Commit any pending edits, then DISCARD DRAFT to resync.' +
+        // Still say WHAT is pending: this is the state where knowing matters
+        // most, because the publish guard will refuse the edits.
+        (bits.length ? '\n\n' + FTReview.unpublishedManifest() : '');
     } else {
       el.textContent = bits.length === 0
         ? '○ TREE IN SYNC'
         : '● ' + bits.join(' + ') + ' UNPUBLISHED';
       el.className = bits.length === 0 ? '' : 'dirty';
-      el.title = '';
+      // A count with no manifest is unactionable: "1 DECISION UNPUBLISHED" does
+      // not say about what. List exactly what COMMIT would publish.
+      el.title = bits.length === 0 ? '' : FTReview.unpublishedManifest();
     }
+    el.classList.toggle('clickable', bits.length > 0 || hidden.missing.length > 0);
   }
 
   const commitBtn = document.getElementById('btn-commit-family');

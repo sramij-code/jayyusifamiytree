@@ -239,6 +239,41 @@ var FTReview = window.FTReview = (function () {
       return rows;
     },
 
+    // Everything COMMIT would publish, as one string for the indicator's tooltip.
+    //
+    // Lives here rather than in publish.js so it is reachable by the test suite —
+    // publish.js pulls in FTTheme, which the harness has no document for. It spans
+    // both axes because the indicator is one control: edits come from the
+    // changelog's own `describe` and decisions from uncommittedDetailed(), so the
+    // tooltip reads the way the commit message will.
+    unpublishedManifest: function () {
+      const lines = [];
+      const CAP = 8;   // a tooltip, not a report
+
+      const edits = typeof FTChangeLog === 'undefined' ? [] : FTChangeLog.entries();
+      if (edits.length) {
+        lines.push('Tree edits (' + edits.length + '):');
+        for (const e of edits.slice(0, CAP)) lines.push('  ' + (e.describe || e.op));
+        if (edits.length > CAP) lines.push('  … and ' + (edits.length - CAP) + ' more');
+      }
+
+      const decisions = this.uncommittedDetailed();
+      if (decisions.length) {
+        if (lines.length) lines.push('');
+        lines.push('Review decisions (' + decisions.length + '):');
+        for (const d of decisions.slice(0, CAP)) lines.push('  ' + d.label);
+        if (decisions.length > CAP) lines.push('  … and ' + (decisions.length - CAP) + ' more');
+      }
+
+      // Only offered when a decision is involved: clicking opens the PROPOSALS
+      // drawer, which explains nothing about a pending tree edit.
+      if (decisions.length) {
+        lines.push('');
+        lines.push('Click to open the proposals drawer.');
+      }
+      return lines.join('\n');
+    },
+
     // ---- the اقتراحات button --------------------------------------------
 
     // Derived here rather than in the DOM helper so it can be tested without a
@@ -303,6 +338,33 @@ var FTReview = window.FTReview = (function () {
     // changelog entry, so COMMIT stayed disabled and the decision never left the
     // browser.
     uncommitted: function () { return localDecisions().filter(d => !d.committed); },
+
+    // The same decisions, described well enough to answer "1 DECISION
+    // UNPUBLISHED — about what?". A bare count names a quantity and explains
+    // nothing, which is how a reviewer ends up unable to tell what COMMIT would
+    // publish.
+    //
+    // Joined against the loaded inbox for the author and the first op. If load()
+    // has not run, or the row is not in the inbox, the id is used instead rather
+    // than inventing a description.
+    uncommittedDetailed: function () {
+      const byId = new Map(rows.map(r => [r.id, r]));
+      return this.uncommitted().map(d => {
+        const r = byId.get(d.id);
+        const first = r && (r.ops || [])[0];
+        const verb = d.decision === 'rejected' ? 'rejected' : 'reinstated';
+        return {
+          id: d.id,
+          decision: d.decision,
+          at: d.at,
+          known: !!r,
+          label: verb + ' · ' + (r
+            ? (r.author_name || 'مجهول') + ': ' +
+              (first ? (first.describe || first.op) : 'note only')
+            : 'proposal ' + String(d.id).slice(0, 8) + ' (not in the loaded inbox)'),
+        };
+      });
+    },
 
     // Everything that belongs in data/proposals-reviewed.json: the committed
     // history plus this device's additions, append-only and time-ordered.

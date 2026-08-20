@@ -11,6 +11,22 @@ function initEventListeners() {
   document.getElementById('btn-commit-family').addEventListener('click', commitFamily);
   document.getElementById('btn-undo').addEventListener('click', undoEdit);
   document.getElementById('btn-discard-family').addEventListener('click', discardFamilyDraft);
+
+  // The indicator is what a reviewer stares at when confused about what is
+  // unpublished, so make it answer them: open the drawer with history shown,
+  // where a rejected proposal's card reads بانتظار COMMIT. Pending cards alone
+  // cannot explain a decision, because deciding removes it from pending.
+  const familyState = document.getElementById('family-state');
+  if (familyState) {
+    familyState.addEventListener('click', () => {
+      // Gated on the same class that styles it. markFamilyDirty toggles
+      // .clickable only when there is something to explain, and without this
+      // check clicking a plain "○ TREE IN SYNC" opened the drawer anyway — the
+      // affordance said inert while the behaviour was not.
+      if (!familyState.classList.contains('clickable')) return;
+      if (typeof openReviewHistory === 'function') openReviewHistory();
+    });
+  }
   document.getElementById('btn-reset-draft').addEventListener('click', () => FTAdminDraft.reset());
   initTokenModal();
   initReviewUI();

@@ -93,11 +93,28 @@ function markFamilyDirty() {
       : 'CONNECT GITHUB …';
     // Without a token the button's job is to collect one, so it stays live
     // even with nothing to publish.
-    commitBtn.disabled = connected && n === 0 && d === 0;
+    //
+    // Also disabled when commitFamily would REFUSE, rather than left live to set
+    // a status message: clicking produced identical text every time, so it read
+    // as broken at exactly the moment the user is least sure what is happening.
+    // Mirrors the guard's condition — only an edit writes family.js, so a
+    // decisions-only commit stays available.
+    const blockedByStaleDraft = n > 0 && hidden.missing.length > 0;
+    commitBtn.disabled = connected && ((n === 0 && d === 0) || blockedByStaleDraft);
+    commitBtn.title = blockedByStaleDraft
+      ? 'Blocked: this browser\'s draft hides ' + hidden.missing.length +
+        ' person(s) that are in data/family.js (' + hidden.names.join(', ') +
+        '). Publishing would delete them. Press DISCARD EDITS, then reload.'
+      : '';
   }
 
   const discardBtn = document.getElementById('btn-discard-family');
-  if (discardBtn) discardBtn.disabled = n === 0;
+  if (discardBtn) {
+    // Enabled for a stale draft with NO edits too. That combination was a dead
+    // end: the button was disabled and discardFamilyDraft returned early, so a
+    // draft hiding committed people could only be cleared from DevTools.
+    discardBtn.disabled = n === 0 && hidden.missing.length === 0;
+  }
 
   const undoBtn = document.getElementById('btn-undo');
   if (undoBtn) {
@@ -147,12 +164,18 @@ let _discardArmed = false;
 function discardFamilyDraft() {
   const btn = document.getElementById('btn-discard-family');
   const n = FTChangeLog.count();
-  if (n === 0) return;
+  // A stale draft with no edits still has to be discardable: it hides people who
+  // ARE in data/family.js, and until this it was unreachable from the UI — the
+  // button was disabled and this returned early, leaving DevTools as the only way.
+  const stale = FTChangeLog.draftDivergence().missing.length;
+  if (n === 0 && stale === 0) return;
 
   if (!_discardArmed) {
     _discardArmed = true;
     if (btn) {
-      btn.textContent = 'CONFIRM: LOSE ' + n + ' ↺';
+      // "LOSE 0" is nonsense, and resyncing a draft holding no edits loses
+      // nothing — so name which of the two is actually happening.
+      btn.textContent = n > 0 ? 'CONFIRM: LOSE ' + n + ' ↺' : 'CONFIRM: RESYNC ↺';
       btn.classList.add('danger');
     }
     // Disarm on its own, so a stray click cannot sit primed indefinitely.

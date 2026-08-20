@@ -226,6 +226,33 @@ module.exports = function ({ describe, ok, eq }) {
        'and does not recompute the count from pending() itself');
   });
 
+  describe('the publish bar never offers an action it will refuse', () => {
+    // A guard that fires on click, sets the same status text every time and leaves
+    // the button live reads as a broken button. And a stale draft with no edits was
+    // a genuine dead end: DISCARD was disabled AND discardFamilyDraft returned
+    // early, so the only way to clear a draft hiding committed people was DevTools.
+    const pub = read('assets/js/admin/publish.js');
+
+    ok(/const blockedByStaleDraft = n > 0 && hidden\.missing\.length > 0/.test(pub),
+       'COMMIT computes whether the guard would refuse');
+    ok(/commitBtn\.disabled = connected && \(\(n === 0 && d === 0\) \|\| blockedByStaleDraft\)/.test(pub),
+       'and is disabled in that case, not left live');
+    ok(/Press DISCARD EDITS/.test(pub), 'its title says what to do instead');
+
+    // Only an edit writes family.js, so a decisions-only commit must stay live.
+    ok(/n > 0 && hidden\.missing\.length > 0/.test(pub),
+       'the block is gated on edits, so decisions-only stays committable');
+
+    ok(/discardBtn\.disabled = n === 0 && hidden\.missing\.length === 0/.test(pub),
+       'DISCARD is enabled for a stale draft even with zero edits');
+    const fn = pub.slice(pub.indexOf('function discardFamilyDraft'),
+                         pub.indexOf('\n}', pub.indexOf('function discardFamilyDraft')));
+    ok(/if \(n === 0 && stale === 0\) return/.test(fn),
+       'and discardFamilyDraft no longer returns early on a stale draft');
+    ok(/CONFIRM: RESYNC/.test(fn),
+       'labelled RESYNC when there are no edits to lose, not "LOSE 0"');
+  });
+
   describe('the unpublished indicator is explainable and clickable', () => {
     const pub = read('assets/js/admin/publish.js');
     const adm = read('assets/js/admin/admin.js');

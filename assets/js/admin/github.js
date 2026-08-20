@@ -142,20 +142,38 @@ var FTGitHub = window.FTGitHub = (function () {
         // for the branch tip and retry from a fresh read.
         throw new Error('GitHub 422 on ' + path + '. ' + detail);
       }
-      throw new Error('GitHub ' + res.status + ' on ' + path + '. ' + detail);
+      // The status is carried on the error because "absent" and "unreadable" must
+      // be distinguishable: one is safe to treat as empty, the other must abort.
+      const err = new Error('GitHub ' + res.status + ' on ' + path + '. ' + detail);
+      err.status = res.status;
+      throw err;
     }
     return res.status === 204 ? null : res.json();
   }
 
   // The changelog is append-only across publishes, so the existing file has to
   // be read before writing. Absent on the first publish, which is not an error.
+  // ABSENT and UNREADABLE are not the same thing.
+  //
+  // These both returned empty on ANY throw — a 403, a network blip, a torn
+  // response. The caller then rebuilds the file from empty + local, so one failed
+  // GET silently deleted every previously committed line: all of data/changes.jsonl,
+  // or every decision in data/proposals-reviewed.json. The old comment even said
+  // "a hand-edit we should not clobber" while doing precisely that.
+  //
+  // 404 alone means the file does not exist yet, which is genuinely empty and only
+  // true before the first publish. Anything else aborts the publish: the local
+  // draft is untouched, so refusing costs a retry, while proceeding costs history.
   async function fetchExistingLog() {
     try {
       const r = await api('/repos/' + OWNER + '/' + REPO + '/contents/' +
                           LOG_PATH + '?ref=' + BRANCH, { method: 'GET' });
       return r && r.content ? base64ToUtf8(r.content) : '';
     } catch (e) {
-      return '';   // 404 on first publish
+      if (e && e.status === 404) return '';
+      throw new Error('Refusing to publish: could not read ' + LOG_PATH + ' (' +
+        e.message + '). Continuing would rewrite it from scratch and drop every ' +
+        'committed line. Your edits are safe in the draft — try again.');
     }
   }
 
@@ -166,9 +184,17 @@ var FTGitHub = window.FTGitHub = (function () {
       const r = await api('/repos/' + OWNER + '/' + REPO + '/contents/' +
                           REVIEWED_PATH + '?ref=' + BRANCH, { method: 'GET' });
       const doc = JSON.parse(base64ToUtf8(r.content));
-      return Array.isArray(doc.decisions) ? doc.decisions : [];
+      // Malformed is NOT empty either: a hand-edit that broke the JSON must not be
+      // silently replaced by whatever this browser happens to hold locally.
+      if (!doc || !Array.isArray(doc.decisions)) {
+        throw new Error(REVIEWED_PATH + ' is not in the expected shape');
+      }
+      return doc.decisions;
     } catch (e) {
-      return [];   // 404 on first publish, or a hand-edit we should not clobber
+      if (e && e.status === 404) return [];
+      throw new Error('Refusing to publish: could not read ' + REVIEWED_PATH + ' (' +
+        e.message + '). Continuing would rewrite it from scratch and drop every ' +
+        'committed decision. Your decisions are safe locally — try again.');
     }
   }
 

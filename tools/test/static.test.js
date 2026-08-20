@@ -12,6 +12,8 @@ const path = require('path');
 const { REPO } = require('./harness.js');
 
 const read = f => fs.readFileSync(path.join(REPO, f), 'utf8');
+const { codeOnly } = require('./dom.js');
+
 const exists = f => fs.existsSync(path.join(REPO, f));
 
 const PAGES = ['index.html', 'admin.html'];
@@ -226,6 +228,60 @@ module.exports = function ({ describe, ok, eq }) {
        'and does not recompute the count from pending() itself');
   });
 
+  describe('no message tells the user to press a control that will refuse', () => {
+    const pub = read('assets/js/admin/publish.js');
+    const rui = read('assets/js/admin/review-ui.js');
+    const rev = read('assets/js/admin/review.js');
+
+    ok(/commitBlockedReason: function/.test(rev),
+       'there is ONE predicate for whether COMMIT would refuse');
+    ok(/commitBlockedReason\(\)/.test(rui),
+       'and review-ui consults it rather than guessing');
+    ok(/function commitAdvice/.test(rui),
+       'the post-decision toasts route through it');
+
+    // The three toasts must not hardcode "press COMMIT".
+    for (const marker of ['مرفوض — ', 'أُعيد إلى قيد المراجعة — ', "مُعتمد (' + n + ') — "]) {
+      const at = rui.indexOf(marker);
+      ok(at !== -1, 'toast present: ' + marker.slice(0, 12));
+      ok(rui.slice(at, at + 120).indexOf('commitAdvice()') !== -1,
+         'and it uses commitAdvice(): ' + marker.slice(0, 12));
+    }
+
+    // Instructions that were impossible, and a button name that does not exist.
+    // codeOnly: the fix's own comment mentions DISCARD DRAFT to explain the rename,
+    // so a raw grep flags the very change it is checking for.
+    const pubCode = codeOnly(pub), ruiCode = codeOnly(rui);
+    ok(!/Commit any pending edits, then DISCARD DRAFT/.test(pubCode),
+       'the impossible "commit your edits first" instruction is gone');
+    ok(!/DISCARD DRAFT/.test(pubCode) && !/DISCARD DRAFT/.test(ruiCode),
+       'and no user-visible string names DISCARD DRAFT, a button that does not exist');
+    ok(/DISCARD EDITS/.test(pub), 'the real button name is used');
+
+    // undoEdit must not recompute the indicator from count() alone.
+    const undoStart = pubCode.indexOf('function undoEdit');
+    const undo = pubCode.slice(undoStart, pubCode.indexOf('\n}', undoStart));
+    ok(!/TREE IN SYNC/.test(undo),
+       'undoEdit no longer overwrites the indicator, dropping decisions and staleness');
+    ok(/setFamilyStatus\('↩ undone'/.test(undo),
+       'and reports the undo in the transient status line instead');
+
+    // EXPORT serialises state too, so it cannot look live while it refuses.
+    ok(/exportBtn\.disabled = hidden\.missing\.length > 0/.test(pub),
+       'EXPORT is disabled when a stale draft would make it delete people');
+  });
+
+  describe('the divergence predicate reads the live tree', () => {
+    const cl = read('assets/js/changelog.js');
+    const fn = cl.slice(cl.indexOf('draftDivergence: function'),
+                        cl.indexOf('\n    },', cl.indexOf('draftDivergence: function')));
+    ok(/state\.people/.test(fn), 'it compares against state.people');
+    ok(!/this\.draft\(\)/.test(fn),
+       'and NOT the saved draft, which undo() nulls while the tree stays stale');
+    ok(/hasOwnProperty/.test(fn),
+       "using hasOwnProperty, so state.people['toString'] cannot mask a missing person");
+  });
+
   describe('the drawer does not claim done while decisions await COMMIT', () => {
     // The reported confusion: the drawer printed "لا اقتراحات قيد المراجعة ✓" —
     // meaning nothing needs a DECISION — directly above a publish bar saying
@@ -244,23 +300,30 @@ module.exports = function ({ describe, ok, eq }) {
     // Assert the GUARD, not just the presence of the markup: replacing the
     // condition with `if (false)` leaves every string in the source, so a plain
     // grep for the class name cannot tell live code from dead code.
-    ok(/if \(waiting > 0\) \{/.test(fn),
-       'the block is guarded on there actually being uncommitted decisions');
-    ok(/review-uncommitted/.test(fn), 'and a named block lists them');
-    ok(/uncommittedDetailed\(\)/.test(fn),
-       'using the described form, not a bare count');
+    // Assert the GUARD, not just the presence of the call: replacing the condition
+    // with a constant leaves every string in the source, so a plain grep cannot
+    // tell live code from dead code.
+    ok(/if \(waiting > 0\) list\.appendChild\(uncommittedDecisionsBox\(waiting\)\)/.test(fn),
+       'the box is rendered only when decisions are actually waiting');
     ok(/\.review-uncommitted/.test(css), 'which admin.css styles');
 
-    // The block must appear BEFORE the pending cards, or it is buried again.
-    const posBlock = fn.indexOf('review-uncommitted');
-    const posCards = fn.indexOf('for (const row of pending)');
-    ok(posBlock !== -1 && posCards !== -1 && posBlock < posCards,
-       'and it is rendered above the queue, not below it');
-
-    // It must say committing decisions is safe, since the OTHER guard refuses
-    // COMMIT for tree edits and the two refusals are easy to conflate.
-    ok(/لا يمسّ هذا ملف العائلة/.test(fn),
+    // The box lives in its own function, so it can render before the empty-inbox
+    // return. Its contents are asserted there, not in renderReviewList.
+    const box = ui.slice(ui.indexOf('function uncommittedDecisionsBox'),
+                         ui.indexOf('\nfunction renderReviewList'));
+    ok(/uncommittedDetailed\(\)/.test(box), 'using the described form, not a bare count');
+    ok(/لا يمسّ هذا ملف العائلة/.test(box),
        'and notes that a decisions-only commit does not touch family.js');
+
+    // ORDER IS THE BUG: the box must be appended BEFORE the empty-inbox return, or
+    // an unpublished decision is invisible whenever the inbox is empty or unloaded
+    // — and a decision outlives its proposal, so that row may well be gone.
+    const posBox = fn.indexOf('uncommittedDecisionsBox(');
+    const posEmpty = fn.indexOf("reviewEmpty('لا اقتراحات بعد')");
+    const posCards = fn.indexOf('for (const row of pending)');
+    ok(posBox !== -1 && posEmpty !== -1 && posBox < posEmpty,
+       'the box is rendered before the empty-inbox early return');
+    ok(posBox < posCards, 'and above the queue, not below it');
   });
 
   describe('the publish bar never offers an action it will refuse', () => {

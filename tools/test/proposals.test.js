@@ -8,7 +8,7 @@
    modal.
 ============================================================================ */
 
-const { boot, run, invariants, makeProposal, loadFamily } = require('./harness.js');
+const { boot, run, invariants, makeProposal, loadFamily, makeTreeMissing } = require('./harness.js');
 
 // A row as it would arrive from Supabase.
 function row(id, ops, extra) {
@@ -373,6 +373,10 @@ module.exports = function ({ describe, ok, eq }) {
     const a = boot({ store, role: 'admin' });
     // The harness stops at initState(); admin.js:61-62 is what applies the draft.
     run(a, 'if (FTChangeLog.hasDraft()) FTChangeLog.applyDraft();');
+    // applyDraft now RECONCILES, so the stale draft alone no longer leaves the
+    // tree short. The guard still has to hold for a tree that is missing someone
+    // for an unexplained reason, so construct that directly.
+    makeTreeMissing(a, victim);
 
     ok(!run(a, '!!state.people[' + JSON.stringify(victim) + ']'),
        'the draft hides a committed person, reproducing the report');
@@ -444,6 +448,10 @@ module.exports = function ({ describe, ok, eq }) {
     };
     const a = boot({ store, role: 'admin' });
     run(a, 'if (FTChangeLog.hasDraft()) FTChangeLog.applyDraft();');
+    // applyDraft now RECONCILES, so the stale draft alone no longer leaves the
+    // tree short. The guard still has to hold for a tree that is missing someone
+    // for an unexplained reason, so construct that directly.
+    makeTreeMissing(a, victim);
 
     eq(run(a, 'FTChangeLog.draftDivergence().missing'), [victim], 'the hidden person is detected');
     ok(run(a, 'FTChangeLog.count()') > 0, 'and there is an edit that would write family.js');
@@ -476,6 +484,10 @@ module.exports = function ({ describe, ok, eq }) {
     };
     const a = boot({ store, role: 'admin' });
     run(a, 'if (FTChangeLog.hasDraft()) FTChangeLog.applyDraft();');
+    // applyDraft now RECONCILES, so the stale draft alone no longer leaves the
+    // tree short. The guard still has to hold for a tree that is missing someone
+    // for an unexplained reason, so construct that directly.
+    makeTreeMissing(a, victim);
 
     ok(run(a, 'FTChangeLog.draftDivergence().missing.length') > 0, 'the draft is stale');
     eq(run(a, 'FTChangeLog.count()'), 0, 'but there are no tree edits');
@@ -860,6 +872,203 @@ module.exports = function ({ describe, ok, eq }) {
     const listed = m.split('\n').filter(l => /^  ~ edit /.test(l)).length;
     eq(listed, 8, 'but only the first 8 are spelled out');
     ok(/… and 12 more/.test(m), 'and the remainder is named, not silently dropped', m);
+  });
+
+  describe('the stale-draft guard measures the LIVE tree, not the saved draft', () => {
+    // A silent data-loss hole, confirmed before it was fixed: undo() calls
+    // clearDraft() as soon as the log empties, but the snapshot it restores IS the
+    // stale tree. So draftDivergence() read a null draft, reported clean, both
+    // publish guards passed, and EXPORT serialised 1746 people over a committed
+    // 1747 — deleting someone with no changelog entry naming it.
+    const committed = loadFamily();
+    const victim = Object.keys(committed.people)[9];
+    const stale = JSON.parse(JSON.stringify(committed));
+    delete stale.people[victim];
+    stale.partnerships = stale.partnerships
+      .map(p => Object.assign({}, p, { partners: p.partners.map(x => x === victim ? null : x) }))
+      .filter(p => p.partners.some(Boolean) || p.children.length);
+
+    const a = boot({ store: {
+      'ftFamilyDraft:admin': JSON.stringify({ people: stale.people, partnerships: stale.partnerships }),
+      'ftChangeLog:admin': '[]',
+    }, role: 'admin' });
+    run(a, 'if (FTChangeLog.hasDraft()) FTChangeLog.applyDraft();');
+    // applyDraft now RECONCILES, so the stale draft alone no longer leaves the
+    // tree short. The guard still has to hold for a tree that is missing someone
+    // for an unexplained reason, so construct that directly.
+    makeTreeMissing(a, victim);
+
+    // One edit, then undo it — the window where the guard used to go blind.
+    run(a, `
+      FTChangeLog.pushUndo('e');
+      state.people['p3'].name = state.people['p3'].name + ' x';
+      FTChangeLog.record({op:'rename', target:'p3', describe:'~ e'});
+      FTChangeLog.saveDraft();
+    `);
+    eq(run(a, 'FTChangeLog.draftDivergence().missing'), [victim], 'detected while the edit stands');
+
+    run(a, 'FTChangeLog.undo();');
+    eq(run(a, 'FTChangeLog.count()'), 0, 'the log is empty after undo');
+    ok(!run(a, 'FTChangeLog.hasDraft()'), 'and undo cleared the saved draft');
+    ok(!run(a, 'state.people[' + JSON.stringify(victim) + ']'),
+       'but the live tree is still missing them');
+    eq(run(a, 'FTChangeLog.draftDivergence().missing'), [victim],
+       'so the guard must STILL report it — this is the hole that was closed');
+
+    // And the write paths must refuse.
+    eq(run(a, 'FTReview.commitBlockedReason()'), null,
+       'with no edits there is nothing for COMMIT to refuse');
+    ok(run(a, 'FTChangeLog.draftDivergence().missing.length') > 0,
+       'yet EXPORT, which serialises regardless of the changelog, is still blocked');
+  });
+
+  describe('every COMMIT instruction agrees with the button', () => {
+    // The reported confusion: the drawer said "press COMMIT · this does not touch
+    // the family file" while COMMIT was disabled and an edit was pending, which
+    // made both halves false.
+    const committed = loadFamily();
+    const victim = Object.keys(committed.people)[9];
+    const stale = JSON.parse(JSON.stringify(committed));
+    delete stale.people[victim];
+
+    const store = {
+      'ftFamilyDraft:admin': JSON.stringify({ people: stale.people, partnerships: stale.partnerships }),
+      'ftChangeLog:admin': '[]',
+      'ftRejectedProposals': JSON.stringify([
+        { id: 'r1', decision: 'reinstated', at: '2026-08-20T00:09:00Z', note: null, by: 'admin' },
+      ]),
+    };
+    const a = boot({ store, role: 'admin' });
+    run(a, 'if (FTChangeLog.hasDraft()) FTChangeLog.applyDraft();');
+    // applyDraft now RECONCILES, so the stale draft alone no longer leaves the
+    // tree short. The guard still has to hold for a tree that is missing someone
+    // for an unexplained reason, so construct that directly.
+    makeTreeMissing(a, victim);
+
+    // Decisions only: committing is genuinely safe, so nothing is blocked.
+    eq(run(a, 'FTReview.commitBlockedReason()'), null,
+       'a decisions-only commit is never blocked, however stale the draft');
+
+    // Add the edit — now it must refuse, and say who is at risk.
+    run(a, `FTChangeLog.record({op:'rename', target:'p3', describe:'~ e'});`);
+    const blocked = run(a, 'FTReview.commitBlockedReason()');
+    ok(blocked && blocked.missing.length === 1, 'with an edit pending it refuses');
+    eq(blocked.names, [committed.people[victim].name], 'naming who publishing would delete');
+
+    // Same predicate the button uses, so the two cannot disagree.
+    eq(run(a, '(function(){ var h = FTChangeLog.draftDivergence(); return FTChangeLog.count() > 0 && h.missing.length > 0; })()'),
+       true, "and it mirrors the button's own condition");
+  });
+
+  describe('a stale draft is RECONCILED at boot, not just detected', () => {
+    // The actual fix for the Mona1 failure. Detecting staleness only ever offered a
+    // choice between two bad outcomes: publish and delete someone, or discard and
+    // lose your unpublished edits. Reconciling keeps both.
+    const committed = loadFamily();
+    const victim = Object.keys(committed.people)[9];
+    const stale = JSON.parse(JSON.stringify(committed));
+    delete stale.people[victim];
+    stale.partnerships = stale.partnerships
+      .map(p => Object.assign({}, p, { partners: p.partners.map(x => x === victim ? null : x) }))
+      .filter(p => p.partners.some(Boolean) || p.children.length);
+
+    const a = boot({ store: {
+      'ftFamilyDraft:admin': JSON.stringify({ people: stale.people, partnerships: stale.partnerships }),
+      // An unpublished edit, which must survive the reconciliation.
+      'ftChangeLog:admin': JSON.stringify([{ op: 'rename', target: 'p3', describe: '~ mine' }]),
+    }, role: 'admin' });
+    ok(run(a, 'FTChangeLog.applyDraft()'), 'the draft applies');
+
+    const rep = run(a, 'FTChangeLog.draftReport()');
+    eq(rep.baselineMatched, false, 'the baseline is recognised as different');
+    eq(rep.restored, [victim], 'and the missing person is restored');
+    eq(rep.keptDeleted, [], 'nothing was deliberately deleted');
+
+    ok(run(a, 'state.people[' + JSON.stringify(victim) + ']'), 'they are back in the tree');
+    eq(run(a, 'Object.keys(state.people).length'), Object.keys(committed.people).length,
+       'the tree matches the committed count again');
+    eq(run(a, 'FTChangeLog.draftDivergence().missing'), [],
+       'so nothing is hidden and publishing is safe');
+    eq(run(a, 'FTChangeLog.count()'), 1, 'and the unpublished edit was NOT lost');
+    eq(invariants(a), [], 'invariants hold — the partnership slots were repaired too');
+  });
+
+  describe('reconciliation does not resurrect an unpublished deletion', () => {
+    // The one case that looks identical to staleness: a person the reviewer removed
+    // on purpose and has not published. Restoring them would silently undo the
+    // deletion, and the reviewer would have to do it twice.
+    const committed = loadFamily();
+    const parents = new Set();
+    for (const pp of committed.partnerships) {
+      if (pp.children.length) for (const x of pp.partners) if (x) parents.add(x);
+    }
+    const leaf = Object.keys(committed.people).find(id =>
+      id !== committed.root && id !== committed.loggedInUser && !parents.has(id));
+
+    // Built the way deletePerson actually leaves the tree: out of partner slots AND
+    // out of children lists. Nulling only the partner slot left them recorded as a
+    // child of a partnership while absent from people — a fixture that violates the
+    // invariants on its own, which the oracle rightly rejected.
+    const stale = JSON.parse(JSON.stringify(committed));
+    delete stale.people[leaf];
+    stale.partnerships = stale.partnerships
+      .map(p => Object.assign({}, p, {
+        partners: p.partners.map(x => x === leaf ? null : x),
+        children: p.children.filter(c => c !== leaf),
+      }))
+      .filter(p => p.partners.some(Boolean) || p.children.length);
+
+    const a = boot({ store: {
+      'ftFamilyDraft:admin': JSON.stringify({ people: stale.people, partnerships: stale.partnerships }),
+      // The changelog is what accounts for the absence.
+      'ftChangeLog:admin': JSON.stringify([{ op: 'delete_person', target: leaf, describe: '− x' }]),
+    }, role: 'admin' });
+    run(a, 'FTChangeLog.applyDraft();');
+
+    const rep = run(a, 'FTChangeLog.draftReport()');
+    eq(rep.restored, [], 'nobody is restored');
+    eq(rep.keptDeleted, [leaf], 'the deletion is honoured and reported');
+    ok(!run(a, 'state.people[' + JSON.stringify(leaf) + ']'), 'they stay deleted');
+
+    // And it must remain publishable: this is the commit that applies the deletion.
+    eq(run(a, 'FTChangeLog.draftDivergence().missing'), [],
+       'an accounted-for deletion is not staleness');
+    eq(run(a, 'FTReview.commitBlockedReason()'), null, 'so COMMIT is not blocked');
+    eq(invariants(a), [], 'invariants hold');
+  });
+
+  describe('the baseline stamp distinguishes a current draft from an old one', () => {
+    const a = boot({ role: 'admin' });
+    const now = run(a, 'FTChangeLog.baselineStamp()');
+    ok(now && now.people > 0 && typeof now.hash === 'number', 'a stamp is produced');
+
+    // A draft saved now carries the current baseline.
+    run(a, 'FTChangeLog.saveDraft();');
+    eq(run(a, 'FTChangeLog.draft().baseline'), now, 'saveDraft records it');
+    run(a, 'FTChangeLog.applyDraft();');
+    eq(run(a, 'FTChangeLog.draftReport().baselineMatched'), true,
+       'and a same-baseline draft is recognised as current');
+
+    // Membership change with an identical count must NOT look like a match: one
+    // person approved and one deleted between publishes leaves the counts equal.
+    const b = boot({ role: 'admin' });
+    const s1 = run(b, 'FTChangeLog.baselineStamp()');
+    run(b, `
+      var ids = Object.keys(familyData.people);
+      var gone = ids[5];
+      var p = familyData.people[gone];
+      delete familyData.people[gone];
+      familyData.people['pswapped'] = {id:'pswapped', name:p.name, gender:p.gender, generation:p.generation};
+    `);
+    const s2 = run(b, 'FTChangeLog.baselineStamp()');
+    eq(s2.people, s1.people, 'the counts are identical');
+    ok(s2.hash !== s1.hash, 'but the hash differs, so the swap is detected');
+
+    // A draft with no stamp at all (written before this existed) is treated as old.
+    const c = boot({ store: { 'ftFamilyDraft:admin': JSON.stringify({ people: {}, partnerships: [] }) }, role: 'admin' });
+    run(c, 'FTChangeLog.applyDraft();');
+    eq(run(c, 'FTChangeLog.draftReport().baselineMatched'), false,
+       'an unstamped draft is treated as a mismatch, not as current');
   });
 
   describe('crafted proposals cannot break the domain rules', () => {

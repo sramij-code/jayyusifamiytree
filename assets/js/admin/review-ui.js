@@ -42,6 +42,18 @@ function openReviewHistory() {
   refreshReview();
 }
 
+// What to tell the user about COMMIT, given whether it would actually work.
+//
+// Approving is the sharpest case: it CREATES changelog entries, so with a stale
+// draft it flips the guard from passing to refusing and the old message then told
+// the user to press the button it had just disabled.
+function commitAdvice() {
+  const blocked = FTReview.commitBlockedReason();
+  return blocked
+    ? 'لكن COMMIT معطّل: المسودة تُخفي ' + blocked.missing.length + ' شخصًا · اضغط DISCARD EDITS ثم أعد التحميل'
+    : 'اضغط COMMIT لحفظه';
+}
+
 function reviewStatus(text, kind) {
   const el = document.getElementById('review-status');
   if (!el) return;
@@ -95,6 +107,44 @@ function updateReviewBadge() {
 let _showHistory = false;
 let _historyLimit = 0;      // 0 until first opened, then a multiple of the page
 
+// The unpublished decisions, named. Its own function so it can be rendered before
+// the empty-inbox return without duplicating the markup.
+function uncommittedDecisionsBox(waiting) {
+  const box = document.createElement('div');
+  box.className = 'review-uncommitted';
+
+  const head = document.createElement('div');
+  head.className = 'ru-head';
+  head.textContent = '● ' + waiting + (waiting === 1 ? ' قرار بانتظار COMMIT' : ' قرارات بانتظار COMMIT');
+  box.appendChild(head);
+
+  for (const d of FTReview.uncommittedDetailed()) {
+    const line = document.createElement('div');
+    line.className = 'ru-line';
+    line.textContent = (d.decision === 'rejected' ? '✕ ' : '↺ ') + d.label;
+    box.appendChild(line);
+  }
+
+  const hint = document.createElement('div');
+  hint.className = 'ru-hint';
+  // Three cases, because a single string was false in two of them: it said
+  // "press COMMIT · this does not touch the family file" while COMMIT was
+  // disabled and an edit was pending, which would have written family.js.
+  const blocked = FTReview.commitBlockedReason();
+  if (blocked) {
+    hint.textContent = 'COMMIT معطّل: مسودة هذا المتصفح تُخفي ' + blocked.missing.length +
+      ' شخصًا (' + blocked.names.join('، ') + ') وسيحذفهم النشر · اضغط DISCARD EDITS ثم أعد تحميل الصفحة، ثم COMMIT';
+    hint.className = 'ru-hint blocked';
+  } else if (FTChangeLog.count() > 0) {
+    hint.textContent = 'اضغط COMMIT في شريط النشر لحفظها · سيُنشر معها ' +
+      FTChangeLog.count() + ' تعديل على الشجرة';
+  } else {
+    hint.textContent = 'اضغط COMMIT في شريط النشر لحفظها · لا يمسّ هذا ملف العائلة';
+  }
+  box.appendChild(hint);
+  return box;
+}
+
 function renderReviewList() {
   const list = document.getElementById('review-list');
   list.textContent = '';
@@ -102,6 +152,16 @@ function renderReviewList() {
   const all = FTReview.all();
   const pending = all.filter(r => r._state === 'pending');
   const decided = all.length - pending.length;
+
+  // Computed BEFORE the empty-inbox return, and rendered before it too.
+  //
+  // This used to sit after `if (all.length === 0) return`, so an unpublished
+  // decision was invisible whenever the inbox was empty or had not loaded — and a
+  // decision outlives its proposal: it is exactly the row that may be gone. The
+  // publish bar would say "1 DECISION UNPUBLISHED" over a drawer showing only
+  // "no proposals yet". Found by the UI suite, not by reading the code.
+  const waiting = FTReview.uncommitted().length;
+  if (waiting > 0) list.appendChild(uncommittedDecisionsBox(waiting));
 
   if (all.length === 0) {
     list.appendChild(reviewEmpty('لا اقتراحات بعد'));
@@ -111,40 +171,10 @@ function renderReviewList() {
   // nothing needs COMMIT, and printing the tick while decisions sat unpublished
   // made the drawer contradict the publish bar — the reviewer read the tick,
   // concluded everything was done, and could not see why the bar disagreed.
-  const waiting = FTReview.uncommitted().length;
   if (pending.length === 0) {
     list.appendChild(reviewEmpty(waiting > 0
       ? 'لا اقتراحات قيد المراجعة — لكن هناك قرارات لم تُنشر بعد'
       : 'لا اقتراحات قيد المراجعة ✓'));
-  }
-
-  // The decisions themselves, named, at the TOP. They live on history cards, so
-  // without this the only way to find them was to expand the log and scan for
-  // بانتظار COMMIT on individual cards.
-  if (waiting > 0) {
-    const box = document.createElement('div');
-    box.className = 'review-uncommitted';
-
-    const head = document.createElement('div');
-    head.className = 'ru-head';
-    head.textContent = '● ' + waiting + (waiting === 1 ? ' قرار بانتظار COMMIT' : ' قرارات بانتظار COMMIT');
-    box.appendChild(head);
-
-    for (const d of FTReview.uncommittedDetailed()) {
-      const line = document.createElement('div');
-      line.className = 'ru-line';
-      line.textContent = (d.decision === 'rejected' ? '✕ ' : '↺ ') + d.label;
-      box.appendChild(line);
-    }
-
-    const hint = document.createElement('div');
-    hint.className = 'ru-hint';
-    // Say why it is safe, because the other guard blocks COMMIT for tree edits and
-    // the two refusals are easy to confuse.
-    hint.textContent = 'اضغط COMMIT في شريط النشر لحفظها · لا يمسّ هذا ملف العائلة';
-    box.appendChild(hint);
-
-    list.appendChild(box);
   }
 
   for (const row of pending) list.appendChild(reviewCard(row));
@@ -295,7 +325,7 @@ function reviewCard(row, inHistory) {
       hint.className = 'review-failed hint';
       hint.textContent = 'مسودة هذا المتصفح تُخفي ' + hidden.missing.length +
         ' شخصًا موجودًا في البيانات المنشورة (' + hidden.names.join('، ') + '). ' +
-        'انشر أي تعديلات معلّقة ثم اضغط DISCARD DRAFT.';
+        'اضغط DISCARD EDITS ثم أعد تحميل الصفحة.';
       card.appendChild(hint);
     }
   }
@@ -315,7 +345,7 @@ function reviewCard(row, inHistory) {
         // COMMIT button stays disabled because nothing was recorded.
         reviewStatus(n === 0
           ? 'لم يُطبَّق أي تعديل — راجع الأسماء أو أن الأشخاص حُذفوا'
-          : 'مُعتمد (' + n + ') — اضغط COMMIT لنشره',
+          : 'مُعتمد (' + n + ') — ' + commitAdvice(),
           n === 0 ? 'err' : 'ok');
       }));
       actions.appendChild(reviewBtn('إلغاء المعاينة', 'ghost', () => {
@@ -342,7 +372,7 @@ function reviewCard(row, inHistory) {
       // A decision is now a publishable change, so the publish bar has to notice
       // it — otherwise COMMIT stays disabled and the rejection never leaves.
       markFamilyDirty();
-      reviewStatus(stored ? 'مرفوض — اضغط COMMIT لحفظه' : 'تعذّر حفظ القرار محليًا',
+      reviewStatus(stored ? 'مرفوض — ' + commitAdvice() : 'تعذّر حفظ القرار محليًا',
                    stored ? 'ok' : 'err');
     }));
   } else if (row._state === 'rejected') {
@@ -351,7 +381,7 @@ function reviewCard(row, inHistory) {
       renderReviewList();
       updateReviewBadge();
       markFamilyDirty();
-      reviewStatus(stored ? 'أُعيد إلى قيد المراجعة — اضغط COMMIT لحفظه'
+      reviewStatus(stored ? 'أُعيد إلى قيد المراجعة — ' + commitAdvice()
                           : 'تعذّر حفظ القرار محليًا', stored ? 'ok' : 'err');
     }));
   }

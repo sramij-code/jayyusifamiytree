@@ -69,7 +69,11 @@ function markFamilyDirty() {
       el.title = 'This browser\'s draft is missing ' + hidden.missing.length +
         ' person(s) that are in data/family.js: ' + hidden.names.join(', ') +
         (hidden.missing.length > hidden.names.length ? ', …' : '') +
-        '. Commit any pending edits, then DISCARD DRAFT to resync.' +
+        '. Publishing would DELETE them. Press DISCARD EDITS, then reload.' +
+        // NOT "commit your pending edits first": committing edits is exactly what
+        // is blocked here, so that instruction was impossible. The button is also
+        // called DISCARD EDITS, not DISCARD DRAFT (admin.html).
+
         // Still say WHAT is pending: this is the state where knowing matters
         // most, because the publish guard will refuse the edits.
         (bits.length ? '\n\n' + FTReview.unpublishedManifest() : '');
@@ -105,6 +109,17 @@ function markFamilyDirty() {
       ? 'Blocked: this browser\'s draft hides ' + hidden.missing.length +
         ' person(s) that are in data/family.js (' + hidden.names.join(', ') +
         '). Publishing would delete them. Press DISCARD EDITS, then reload.'
+      : '';
+  }
+
+  // EXPORT serialises state.people the same way COMMIT does, and publishFamily
+  // refuses on a stale draft — so it must not look live either.
+  const exportBtn = document.getElementById('btn-publish-family');
+  if (exportBtn) {
+    exportBtn.disabled = hidden.missing.length > 0;
+    exportBtn.title = hidden.missing.length > 0
+      ? 'Blocked: the draft hides ' + hidden.missing.length + ' person(s) in data/family.js (' +
+        hidden.names.join(', ') + '). This export would delete them.'
       : '';
   }
 
@@ -149,10 +164,12 @@ function undoEdit() {
     document.getElementById('search-input').value,
     document.getElementById('search-results'));
   markFamilyDirty();
-  setFamilyStatus(FTChangeLog.count() === 0
-    ? '○ TREE IN SYNC · undone'
-    : '● ' + FTChangeLog.count() + ' unpublished · undone',
-    FTChangeLog.count() === 0 ? '' : 'dirty');
+  // Do NOT recompute the indicator from count() alone. That dropped the decisions
+  // count and the stale-draft warning markFamilyDirty had just worked out, so
+  // undoing the last edit printed "TREE IN SYNC" with a decision still unpublished
+  // and a draft still hiding someone. Report the undo in the transient status line
+  // and leave the indicator to the one function that owns it.
+  setFamilyStatus('↩ undone', '');
 }
 
 // Throw away the draft and every unpublished edit, back to the committed
@@ -381,6 +398,8 @@ async function commitFamily() {
   // Only gated on edits, because a decisions-only commit never writes family.js.
   const hidden = FTChangeLog.draftDivergence();
   if (edits > 0 && hidden.missing.length > 0) {
+    if (typeof FTLog !== 'undefined') FTLog.emit('publish.commit.refused', {
+      guard: 'stale_draft', missing_count: hidden.missing.length, edits: edits, decisions: decisions });
     setFamilyStatus('✕ لا تنشر: المسودة تُخفي ' + hidden.missing.length + ' شخصًا (' +
       hidden.names.join('، ') + ') · publishing now would DELETE them — ' +
       'discard the stale draft first', 'dirty');

@@ -239,6 +239,23 @@ var FTReview = window.FTReview = (function () {
       return rows;
     },
 
+    // Why COMMIT would refuse right now, or null when it would work.
+    //
+    // ONE predicate, so every message that mentions COMMIT agrees with the button.
+    // They did not: the drawer told the user to "press COMMIT · this does not touch
+    // the family file" while COMMIT was disabled AND an edit was pending, making
+    // both halves false. Each toast had its own idea of when committing was
+    // possible, and none of them consulted the guard.
+    //
+    // Mirrors commitFamily and FTGitHub.publish exactly: only an edit writes
+    // family.js, so a decisions-only commit is never blocked.
+    commitBlockedReason: function () {
+      if (typeof FTChangeLog === 'undefined') return null;
+      if (FTChangeLog.count() === 0) return null;
+      const h = FTChangeLog.draftDivergence();
+      return h.missing.length ? h : null;
+    },
+
     // Everything COMMIT would publish, as one string for the indicator's tooltip.
     //
     // Lives here rather than in publish.js so it is reachable by the test suite —

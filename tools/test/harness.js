@@ -46,7 +46,9 @@ function boot(opts) {
       setItem: (k, v) => { store[k] = String(v); },
       removeItem: k => { delete store[k]; },
     },
-    document: {
+    // An injected document (tools/test/dom.js) when the UI suite needs to click
+    // things; otherwise the minimal stub the ~500 DOM-free checks run against.
+    document: opts.document || {
       // The ONLY thing that decides the storage role. See changelog.js.
       getElementById: id => (id === 'propose-bar' && role === 'propose') ? {} : null,
       addEventListener() {},
@@ -95,6 +97,7 @@ function boot(opts) {
   // Shared by both pages: where a proposal stands, derived from the two committed
   // files rather than stored anywhere.
   load('assets/js/proposal-status.js');
+  load('assets/js/opslog.js');
   if (role === 'propose') load('assets/js/propose.js');
   else {
     load('assets/js/admin/review.js');
@@ -237,4 +240,63 @@ function makeProposal(who, edits) {
   };
 }
 
-module.exports = { boot, run, invariants, loadFamily, makeProposal, REPO };
+/* A boot with a real-enough DOM and the admin UI wired up, so a test can click
+   the actual buttons and read what a user would read.
+
+   Kept separate from boot(): the ~500 unit checks stay DOM-free and fast, and only
+   the UI suite pays for this. The element set comes from the real HTML, so a test
+   cannot pass against an id the page does not declare. */
+function bootUI(opts) {
+  const o = opts || {};
+  const { makeDocument } = require('./dom.js');
+  const role = o.role || 'admin';
+  const doc = makeDocument([role === 'admin' ? 'admin.html' : 'index.html']);
+  const ctx = boot(Object.assign({}, o, { role: role, document: doc }));
+  ctx._doc = doc;
+
+  // The UI files, in the page's own order. Loaded here rather than in boot()
+  // because they overwrite the no-op stubs the unit suites rely on.
+  const load = f => vm.runInContext(fs.readFileSync(path.join(REPO, f), 'utf8'), ctx);
+  if (role === 'admin') {
+    // theme.js first: publish.js's isDirty() reads FTTheme, and the theme layer
+    // only touches documentElement.style, which the stub document provides.
+    load('assets/js/theme.js');
+    load('assets/js/admin/publish.js');
+    load('assets/js/admin/review-ui.js');
+    load('assets/js/admin/admin.js');
+    // Bind the REAL handlers, so a test clicks what a user clicks instead of
+    // calling the function behind the button. Without this a click lands on
+    // nothing and a test can pass while the button is unwired — which is exactly
+    // the class of bug this suite exists to catch.
+    vm.runInContext('initEventListeners();', ctx);
+  } else {
+    load('assets/js/propose-ui.js');
+    load('assets/js/viewer.js');
+    vm.runInContext('initProposeUI(); initMineUI();', ctx);
+  }
+  return ctx;
+}
+
+/* Make the LIVE tree missing someone, without accounting for it.
+   
+   This is what the publish guard defends against: a tree that lacks a person the
+   committed data has, for no reason the changelog explains. applyDraft now
+   reconciles a stale draft automatically, so that route no longer produces the
+   state — but the guard still has to hold, because reconciliation only runs at
+   boot and cannot know about every cause. */
+function makeTreeMissing(ctx, id) {
+  vm.runInContext(`
+    delete state.people[${JSON.stringify(id)}];
+    state.partnerships = state.partnerships
+      .map(function (p) {
+        return { id: p.id,
+                 partners: p.partners.map(function (x) { return x === ${JSON.stringify(id)} ? null : x; }),
+                 children: p.children.filter(function (c) { return c !== ${JSON.stringify(id)}; }) };
+      })
+      .filter(function (p) { return p.partners.some(Boolean) || p.children.length; });
+    invalidateParentIndex(); invalidateCoupleMap(); invalidateChildIndex();
+  `, ctx);
+  return id;
+}
+
+module.exports = { boot, bootUI, run, invariants, loadFamily, makeProposal, makeTreeMissing, REPO };

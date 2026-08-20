@@ -22,7 +22,7 @@ const { AsyncLocalStorage } = require('node:async_hooks');
    continuations, so an assertion is attributed to the group that made it. */
 const als = new AsyncLocalStorage();
 
-const SUITES = ['static', 'domain', 'proposals', 'mobile'];
+const SUITES = ['static', 'domain', 'proposals', 'mobile', 'ui'];
 
 let pass = 0, fail = 0, skip = 0;
 const failures = [];

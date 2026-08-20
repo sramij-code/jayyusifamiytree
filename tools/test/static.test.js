@@ -335,8 +335,8 @@ module.exports = function ({ describe, ok, eq }) {
 
     ok(/const blockedByStaleDraft = n > 0 && hidden\.missing\.length > 0/.test(pub),
        'COMMIT computes whether the guard would refuse');
-    ok(/commitBtn\.disabled = connected && \(\(n === 0 && d === 0\) \|\| blockedByStaleDraft\)/.test(pub),
-       'and is disabled in that case, not left live');
+    ok(/commitBtn\.disabled = connected && \(\(n === 0 && d === 0\) \|\| blockedByStaleDraft \|\| saveFailed\)/.test(pub),
+       'and is disabled in that case, not left live — including a failed draft write');
     ok(/Press DISCARD EDITS/.test(pub), 'its title says what to do instead');
 
     // Only an edit writes family.js, so a decisions-only commit must stay live.

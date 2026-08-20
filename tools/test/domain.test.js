@@ -78,6 +78,26 @@ module.exports = function ({ describe, ok, eq }) {
     eq(invariants(c), [], 'invariants hold');
   });
 
+  describe('canDelete refuses an id that is not a person', () => {
+    // Load-bearing for the review path: approving a delete_person whose target is
+    // already gone relies on canDelete returning false, and a second approval of the
+    // same proposal relies on it too. Asserted here because that assumption was
+    // holding up two safety properties without ever being stated.
+    const c = boot({ role: 'admin' });
+    for (const id of ['pDOES-NOT-EXIST', '', '__proto__', 'toString', 'constructor']) {
+      eq(run(c, 'canDelete(' + JSON.stringify(id) + ')'), false,
+         'canDelete(' + JSON.stringify(id) + ') is false');
+      eq(run(c, 'deleteBlockedReason(' + JSON.stringify(id) + ')'), 'لا يوجد',
+         'and the reason is "no such person"');
+    }
+    // deletePerson must refuse too, since approve() calls it as a second layer.
+    for (const id of ['pDOES-NOT-EXIST', '__proto__']) {
+      eq(run(c, 'deletePerson(' + JSON.stringify(id) + ')'), false,
+         'deletePerson(' + JSON.stringify(id) + ') refuses');
+    }
+    eq(invariants(c), [], 'invariants hold');
+  });
+
   describe('layout places every visible person', () => {
     const c = boot({ role: 'admin' });
     run(c, 'expandAll();');

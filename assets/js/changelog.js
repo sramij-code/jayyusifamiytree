@@ -94,8 +94,17 @@ var FTChangeLog = window.FTChangeLog = (function () {
       return { people: ids.length, partnerships: familyData.partnerships.length, hash: h };
     },
 
+    // True when the last saveDraft() could not write.
+    //
+    // write() swallows the exception and returns false, and NO caller checked it, so a
+    // full or blocked localStorage meant the tree carried edits that would vanish on
+    // the next reload with nothing said. Surfaced now, because losing an edit silently
+    // is worse than any warning.
+    _saveFailed: false,
+    saveFailed: function () { return this._saveFailed; },
+
     saveDraft: function () {
-      return write(DRAFT_KEY, {
+      const ok = write(DRAFT_KEY, {
         people: state.people,
         partnerships: state.partnerships,
         savedAt: new Date().toISOString(),
@@ -104,7 +113,23 @@ var FTChangeLog = window.FTChangeLog = (function () {
         // applyDraft silently hides them — the Mona1 failure. Recorded on every
         // save, so it tracks forward as the baseline moves.
         baseline: this.baselineStamp(),
+        // Deletions recorded so far, carried IN THE DRAFT.
+        //
+        // applyDraft derives "stays deleted" from the changelog, but propose.js's
+        // submit() clears the log while deliberately keeping the draft. So after
+        // submitting a deletion, reconciliation found no delete_person entry and
+        // RESTORED the person: the proposer's own card read "− X · قيد المراجعة"
+        // while X was visibly back on their tree. Measured before this line existed.
+        deletedIds: this.entries()
+          .filter(e => e && e.op === 'delete_person' && e.target)
+          .map(e => e.target),
       });
+      this._saveFailed = !ok;
+      if (!ok && typeof FTLog !== 'undefined') {
+        FTLog.emit('error', { message: 'saveDraft failed — localStorage rejected the write',
+                              kind: 'storage' });
+      }
+      return ok;
     },
 
     draft: function () { return read(DRAFT_KEY, null); },
@@ -198,8 +223,11 @@ var FTChangeLog = window.FTChangeLog = (function () {
         report.baselineMatched = !!(was && now && was.people === now.people &&
                                     was.partnerships === now.partnerships && was.hash === now.hash);
 
+        // The union of what the log still says and what the draft remembers. The log
+        // is cleared on submit; the draft is not.
         const deleted = new Set(
           this.entries().filter(e => e && e.op === 'delete_person').map(e => e.target));
+        for (const id of (Array.isArray(d.deletedIds) ? d.deletedIds : [])) deleted.add(id);
         const has = id => Object.prototype.hasOwnProperty.call(state.people, id);
 
         for (const id of Object.keys(familyData.people)) {
@@ -261,6 +289,34 @@ var FTChangeLog = window.FTChangeLog = (function () {
       invalidateCoupleMap();
       invalidateChildIndex();
       return true;
+    },
+
+    // ANOTHER TAB WROTE OUR KEYS.
+    //
+    // Two admin tabs share one origin and one set of keys, with no coordination, so
+    // the last saveDraft wins. Measured: tab 2 overwrote tab 1's draft while the
+    // CHANGELOG kept both entries — the log then described an edit the tree did not
+    // contain, which is the same divergence class the publish guards exist for.
+    //
+    // The storage event fires only in OTHER tabs, which is exactly the signal needed.
+    // This does not coordinate the tabs — that would need locks and is more machinery
+    // than one reviewer needs — it makes the collision visible instead of silent.
+    _foreignWrite: null,
+    foreignWrite: function () { return this._foreignWrite; },
+
+    initTabWatch: function () {
+      try {
+        const self = this;
+        window.addEventListener('storage', function (e) {
+          if (!e || (e.key !== DRAFT_KEY && e.key !== LOG_KEY)) return;
+          self._foreignWrite = { key: e.key, at: new Date().toISOString() };
+          if (typeof FTLog !== 'undefined') {
+            FTLog.emit('error', { message: 'another tab wrote ' + e.key, kind: 'multi_tab' });
+          }
+          if (typeof markFamilyDirty === 'function') markFamilyDirty();
+          if (typeof markProposeState === 'function') markProposeState();
+        });
+      } catch (e) { /* no window, or no storage events: nothing to watch */ }
     },
 
     // What the last applyDraft() had to do. Null until one runs.

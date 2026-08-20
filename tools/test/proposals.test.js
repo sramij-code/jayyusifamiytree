@@ -1071,6 +1071,370 @@ module.exports = function ({ describe, ok, eq }) {
        'an unstamped draft is treated as a mismatch, not as current');
   });
 
+  describe('localStorage staleness cannot silently corrupt state', () => {
+    // Audited because the admin state lives entirely in localStorage. Three hazards
+    // were confirmed by measurement; these lock the fixes in.
+
+    // ---- 1. a decision committed from ANOTHER device is not re-appended --------
+    // The observed case: b96cda29 appears twice in the committed file, byte-identical,
+    // one line per device that still believed it was pending.
+    {
+      const net = async (url) => {
+        const u = String(url);
+        if (u.indexOf('proposals-reviewed.json') !== -1) {
+          return { ok: true, status: 200, text: async () => JSON.stringify({ version: 1, decisions: [
+            { id: 'X', decision: 'rejected', at: '2026-08-01T00:00:00Z', note: null, by: 'admin' }] }) };
+        }
+        if (u.indexOf('changes.jsonl') !== -1) return { ok: true, status: 200, text: async () => '' };
+        return { ok: true, status: 200, json: async () => ([{ id: 'X', created_at: 'x', author_name: 'a', note: null, ops: [] }]) };
+      };
+      const store = { ftRejectedProposals: JSON.stringify([
+        { id: 'X', decision: 'rejected', at: '2026-08-01T00:00:00Z', note: null, by: 'admin' }]) };
+      const a = boot({ store, role: 'admin', net });
+      return run(a, 'FTReview.load()').then(() => {
+        eq(run(a, 'FTReview.uncommitted().length'), 0,
+           'an already-committed decision stops asking to be published');
+        const body = JSON.parse(run(a, `FTReview.reviewedFileBody([{id:'X',decision:'rejected',at:'2026-08-01T00:00:00Z',note:null,by:'admin'}])`));
+        eq(body.decisions.length, 1, 'and the written file has no duplicate line');
+
+        // Belt and braces: even handed a duplicate directly, the writer dedupes.
+        const dup = JSON.parse(run(a, `FTReview.reviewedFileBody([
+          {id:'Y',decision:'rejected',at:'2026-08-02T00:00:00Z',note:null,by:'admin'},
+          {id:'Y',decision:'rejected',at:'2026-08-02T00:00:00Z',note:null,by:'admin'}])`));
+        eq(dup.decisions.length, 1, 'the writer itself refuses to emit the same decision twice');
+      });
+    }
+  });
+
+  describe('a draft that could not be saved is not silent', () => {
+    // write() swallows the exception and returns false, and no caller checked it. A
+    // full or blocked localStorage meant edits sat in the tree and vanished on reload
+    // with nothing said.
+    const a = boot({ role: 'admin' });
+    eq(run(a, 'FTChangeLog.saveFailed()'), false, 'clean to begin with');
+    run(a, 'localStorage.setItem = function(){ throw new Error("QuotaExceededError"); };');
+    const ok = run(a, `(function(){
+      var id = state.generateId();
+      state.people[id] = {id:id, name:'x', gender:'male', generation:1};
+      return FTChangeLog.saveDraft();
+    })()`);
+    eq(ok, false, 'saveDraft reports the failure');
+    eq(run(a, 'FTChangeLog.saveFailed()'), true, 'and the failure is remembered, so the UI can say so');
+  });
+
+  describe('another tab writing the draft is detected', () => {
+    // Two admin tabs share one origin and one set of keys with no coordination, so the
+    // last saveDraft wins. Measured: tab 2 overwrote tab 1's draft while the changelog
+    // kept BOTH entries, so the log described an edit the tree did not contain.
+    const shared = {};
+    const t1 = boot({ store: shared, role: 'admin' });
+    const t2 = boot({ store: shared, role: 'admin' });
+
+    run(t1, `
+      var a1 = state.generateId();
+      state.people[a1] = {id:a1, name:'TAB-ONE', gender:'male', generation:1};
+      FTChangeLog.record({op:'add_child', target:'p2', id:a1, name:'TAB-ONE', describe:'+ TAB-ONE'});
+      FTChangeLog.saveDraft();
+    `);
+    run(t2, `
+      var a2 = state.generateId();
+      state.people[a2] = {id:a2, name:'TAB-TWO', gender:'male', generation:1};
+      FTChangeLog.record({op:'add_child', target:'p3', id:a2, name:'TAB-TWO', describe:'+ TAB-TWO'});
+      FTChangeLog.saveDraft();
+    `);
+
+    // The divergence is real and worth stating plainly in a test.
+    const draft = JSON.parse(shared['ftFamilyDraft:admin']);
+    const names = Object.values(draft.people).map(p => p.name);
+    ok(names.indexOf('TAB-ONE') === -1 && names.indexOf('TAB-TWO') !== -1,
+       'the last tab to save wins, as localStorage has no locking');
+    eq(JSON.parse(shared['ftChangeLog:admin']).length, 2,
+       'while the changelog kept both — the log now describes an edit the tree lacks');
+
+    // Which is why the collision has to be VISIBLE. The storage event fires only in
+    // other tabs, so simulate what tab 1 would receive.
+    eq(run(t1, 'FTChangeLog.foreignWrite()'), null, 'nothing seen yet');
+    run(t1, `FTChangeLog._foreignWrite = { key: 'ftFamilyDraft:admin', at: '2026-08-20T03:00:00Z' };`);
+    ok(run(t1, '!!FTChangeLog.foreignWrite()'), 'a foreign write is recorded once observed');
+    ok(run(t1, 'typeof FTChangeLog.initTabWatch === "function"'),
+       'and there is a watcher to observe it');
+  });
+
+  describe('a lost response after a successful insert does not duplicate the proposal', () => {
+    // The insert can succeed while its reply is lost — a dropped connection, a
+    // backgrounded tab, a flaky phone. clearLog() and rememberSent() then never run,
+    // the edit still reads as unsent, and the visitor presses إرسال again. Two
+    // identical rows in the inbox, and no way for them to withdraw one: the table has
+    // no delete policy.
+    let posts = 0;
+    // A PRE-EXISTING proposal from the same person, newer than ours will be. The
+    // recovery must not mistake it for our submission — matching "the most recent row
+    // by this author" would silently adopt someone else's id and mark our edit sent
+    // while it was never stored.
+    const landed = [{
+      id: 'srv-older', created_at: '2026-08-20T05:00:00Z', author_node: 'p143',
+      author_name: 'x', note: 'an earlier suggestion',
+      ops: [{ op: 'add_wife', target: 'p9', id: 'pNOTMINE', name: 'ز', describe: '+ ز' }],
+    }];
+    const net = async (url, init) => {
+      const u = String(url);
+      if (u.indexOf('changes.jsonl') !== -1) return { ok: true, status: 200, text: async () => '' };
+      if (u.indexOf('proposals-reviewed.json') !== -1) return { ok: false, status: 404 };
+      if ((init && init.method) === 'POST') {
+        posts++;
+        const body = JSON.parse(init.body);
+        // The row IS created server-side...
+        landed.push(Object.assign({ id: 'srv-' + posts, created_at: '2026-08-20T04:00:0' + posts + 'Z' }, body));
+        // ...but the client never sees the reply.
+        throw new TypeError('connection lost after the insert');
+      }
+      // The follow-up query can see it, which is what makes recovery possible.
+      // Sorted the way PostgREST would for order=created_at.desc — NOT insertion
+      // order. That matters: the unrelated row is newer, so it comes FIRST, and code
+      // that just took "the most recent row by this author" would pick the wrong one.
+      return { ok: true, status: 200, json: async () =>
+        landed.slice().sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))) };
+    };
+
+    const store = { ftProposeMode: 'true', ftHomeNode: 'p143' };
+    const v = boot({ store, role: 'propose', net });
+    const opId = run(v, `(function(){
+      var id = state.generateId();
+      FTChangeLog.record({op:'add_wife', target:'p2', id:id, name:'وفاء', describe:'+ وفاء'});
+      return id;
+    })()`);
+
+    return run(v, `FTPropose.submit('please add her').then(
+        function (r) { return { ok: true, id: r.id }; },
+        function (e) { return { ok: false, msg: e.message }; })`).then(out => {
+      eq(posts, 1, 'exactly one POST was made');
+      ok(out.ok, 'submit resolves, because the row is found to have landed', JSON.stringify(out));
+      eq(out.id, 'srv-1', 'reporting the id the server actually created');
+      ok(out.id !== 'srv-older',
+         'and NOT the unrelated newer proposal by the same author');
+
+      // The two consequences that matter.
+      eq(run(v, 'FTChangeLog.count()'), 0,
+         'the pending log is cleared, so nothing invites a resend');
+      eq(run(v, 'FTPropose.sent().length'), 1, 'and the submission is recorded as sent');
+
+      // Matched on the op id, which came from this browser — proof, not a guess.
+      const ours = landed.find(r => r.id === 'srv-1');
+      eq(ours.ops[0].id, opId, 'the recovered row carries our own op id');
+    });
+  });
+
+  describe('a submit that genuinely failed still reports failure', () => {
+    // The recovery must not swallow a real failure, or a lost proposal would look sent.
+    const net = async (url, init) => {
+      const u = String(url);
+      if (u.indexOf('changes.jsonl') !== -1) return { ok: true, status: 200, text: async () => '' };
+      if (u.indexOf('proposals-reviewed.json') !== -1) return { ok: false, status: 404 };
+      if ((init && init.method) === 'POST') throw new TypeError('offline');
+      return { ok: true, status: 200, json: async () => ([]) };   // nothing landed
+    };
+    const v = boot({ store: { ftProposeMode: 'true', ftHomeNode: 'p143' }, role: 'propose', net });
+    run(v, `FTChangeLog.record({op:'add_wife', target:'p2', id:'pfail1', name:'و', describe:'+ و'});`);
+    return run(v, `FTPropose.submit('x').then(
+        function () { return { ok: true }; }, function (e) { return { ok: false, msg: e.message }; })`).then(out => {
+      eq(out.ok, false, 'the failure is reported');
+      eq(run(v, 'FTChangeLog.count()'), 1, 'and the edit is still pending, so nothing was lost');
+      eq(run(v, 'FTPropose.sent().length'), 0, 'with nothing recorded as sent');
+    });
+  });
+
+  describe('a submitted deletion is not resurrected on the next reload', () => {
+    // A bug introduced BY the reconciliation. applyDraft derives "stays deleted" from
+    // the changelog, but submit() clears the log while deliberately keeping the draft.
+    // So after submitting a deletion, reconciliation found no delete_person entry and
+    // restored the person: the proposer's own card read "− X · قيد المراجعة" while X
+    // was visibly back on their tree. Measured; the draft now carries deletedIds.
+    const committed = loadFamily();
+    const parents = new Set();
+    for (const pp of committed.partnerships) {
+      if (pp.children.length) for (const x of pp.partners) if (x) parents.add(x);
+    }
+    const leaf = Object.keys(committed.people).find(id =>
+      id !== committed.root && id !== committed.loggedInUser && !parents.has(id));
+
+    const landed = [];
+    const net = async (url, init) => {
+      const u = String(url);
+      if (u.indexOf('changes.jsonl') !== -1) return { ok: true, status: 200, text: async () => '' };
+      if (u.indexOf('proposals-reviewed.json') !== -1) return { ok: false, status: 404 };
+      if ((init && init.method) === 'POST') {
+        const b = JSON.parse(init.body);
+        landed.push(Object.assign({ id: 'srvD', created_at: '2026-08-20T06:00:00Z' }, b));
+        return { ok: true, status: 201, json: async () => [landed[landed.length - 1]] };
+      }
+      return { ok: true, status: 200, json: async () => landed.slice() };
+    };
+
+    const store = { ftProposeMode: 'true', ftHomeNode: 'p143' };
+    const v = boot({ store, role: 'propose', net });
+    run(v, `FTChangeLog.pushUndo('d'); deletePerson(${JSON.stringify(leaf)});
+            FTChangeLog.record({op:'delete_person', target:${JSON.stringify(leaf)}, describe:'− x'});
+            FTChangeLog.saveDraft();`);
+    ok(!run(v, `!!state.people[${JSON.stringify(leaf)}]`), 'deleted locally');
+
+    return run(v, "FTPropose.submit('remove please')").then(() => {
+      eq(run(v, 'FTChangeLog.count()'), 0, 'submit clears the log, as designed');
+      // The draft must remember the deletion even though the log no longer does.
+      const draft = JSON.parse(store['ftFamilyDraft:propose']);
+      eq(draft.deletedIds, [leaf], 'the draft carries the submitted deletion');
+
+      // Reload.
+      const v2 = boot({ store, role: 'propose', net });
+      run(v2, 'if (FTChangeLog.hasDraft()) FTChangeLog.applyDraft();');
+      ok(!run(v2, `!!state.people[${JSON.stringify(leaf)}]`),
+         'and after a reload they are STILL deleted, matching what was proposed');
+      eq(run(v2, 'FTChangeLog.draftReport().keptDeleted'), [leaf], 'reported as kept deleted');
+      eq(run(v2, 'FTChangeLog.draftReport().restored'), [], 'and nothing was resurrected');
+      eq(invariants(v2), [], 'invariants hold');
+    });
+  });
+
+  describe('an unidentified visitor is not silently attributed to the patriarch', () => {
+    // homeNodeId() falls back to the tree root so the VIEWER always has a node to
+    // centre on. That fallback leaked into identity: me().node was never null, so the
+    // bar showed the patriarch's name, the "choose your name" branches were dead code,
+    // and mine() queried author_node=eq.p1 — listing every unidentified visitor's
+    // proposals as "mine", each with a live withdraw button.
+    const committed = loadFamily();
+
+    for (const [label, store] of [
+      ['no saved id', { ftProposeMode: 'true' }],
+      ['a stale id', { ftProposeMode: 'true', ftHomeNode: 'pRETIRED-BY-REBUILD' }],
+    ]) {
+      const v = boot({ store, role: 'propose' });
+      const me = run(v, 'FTPropose.me()');
+      eq(me.node, null, label + ': identity is null, not the root');
+      ok(me.node !== committed.root, label + ': and specifically not the patriarch');
+      eq(me.name, 'زائر', label + ': shown as a visitor');
+    }
+
+    // A real id still works.
+    const ok2 = boot({ store: { ftProposeMode: 'true', ftHomeNode: 'p143' }, role: 'propose' });
+    eq(run(ok2, 'FTPropose.me().node'), 'p143', 'a valid saved id is honoured');
+    eq(run(ok2, 'FTPropose.me().name'), committed.people['p143'].name, 'with their real name');
+
+    // And mine() must not query at all without an identity, or it would return
+    // strangers' rows.
+    let queried = null;
+    const net = async (url) => {
+      const u = String(url);
+      if (u.indexOf('author_node=eq') !== -1) queried = u;
+      if (u.indexOf('changes.jsonl') !== -1) return { ok: true, status: 200, text: async () => '' };
+      if (u.indexOf('proposals-reviewed.json') !== -1) return { ok: false, status: 404 };
+      return { ok: true, status: 200, json: async () => ([]) };
+    };
+    const anon = boot({ store: { ftProposeMode: 'true' }, role: 'propose', net });
+    return run(anon, 'FTPropose.mine()').then(rows => {
+      eq(queried, null, 'no author_node query is made without an identity');
+      eq(rows.length, 0, 'and no stranger rows are presented as mine');
+    });
+  });
+
+  describe('publishing is refused when the browser could not save the draft', () => {
+    // familyFileBody() serialises live state regardless of the changelog, so a
+    // rejected localStorage write leaves the tree holding a person that changes.jsonl
+    // has no line for. Only the indicator text warned; the button was still live and
+    // neither publish guard tested it.
+    const a = boot({ role: 'admin' });
+    // Token first: setToken writes to localStorage, which is about to start throwing.
+    run(a, "FTGitHub.setToken('fake-token');");
+    run(a, `FTChangeLog.record({op:'rename', target:'p3', describe:'~ logged fine'});`);
+    run(a, 'localStorage.setItem = function(){ throw new Error("QuotaExceededError"); };');
+    run(a, `(function(){
+      var id = state.generateId();
+      state.people[id] = {id:id, name:'unlogged', gender:'male', generation:1};
+      FTChangeLog.saveDraft();
+    })()`);
+    eq(run(a, 'FTChangeLog.saveFailed()'), true, 'the failed write is recorded');
+    ok(run(a, 'FTChangeLog.count()') > 0, 'and there is other work that would publish');
+
+    return run(a, `FTGitHub.publish(function(){}).then(
+        function(){ return 'resolved'; }, function(e){ return 'threw: ' + e.message; })`).then(out => {
+      ok(/could not save the draft/.test(out),
+         'publish refuses rather than committing a tree ahead of its changelog', out);
+    });
+  });
+
+  describe('an unidentified visitor cannot send, and mine() survives a long history', () => {
+    // Two consequences of making me() strict, both flagged in review.
+    const anon = boot({ store: { ftProposeMode: 'true' }, role: 'propose' });
+    run(anon, `FTChangeLog.record({op:'add_wife', target:'p2', id:'panon', name:'و', describe:'+ و'});`);
+    eq(run(anon, 'FTPropose.me().node'), null, 'no identity');
+    ok(run(anon, 'FTChangeLog.count()') > 0, 'but there IS an edit to send');
+    // The gate lives in markProposeState; assert the predicate it uses.
+    ok(!run(anon, '!!FTPropose.me().node'),
+       'so SEND must be gated on identity, or the row would carry author_node: null');
+
+    // The id=in.(…) query is chunked: unpruned ftProposalsSent otherwise grows the URL
+    // until the request 400s, mine() throws, and the drawer shows nothing at all.
+    let chunks = 0, maxIds = 0;
+    const net = async (url) => {
+      const u = String(url);
+      if (u.indexOf('changes.jsonl') !== -1) return { ok: true, status: 200, text: async () => '' };
+      if (u.indexOf('proposals-reviewed.json') !== -1) return { ok: false, status: 404 };
+      const m = /id=in\.\(([^)]*)\)/.exec(u);
+      if (m) {
+        chunks++;
+        maxIds = Math.max(maxIds, m[1].split(',').filter(Boolean).length);
+      }
+      return { ok: true, status: 200, json: async () => ([]) };
+    };
+    const many = boot({ store: {
+      ftProposeMode: 'true', ftHomeNode: 'p143',
+      ftProposalsSent: JSON.stringify(Array.from({ length: 220 }, (_, i) => ({ id: 'sent-' + i, ts: 'x', count: 1 }))),
+    }, role: 'propose', net });
+    return run(many, 'FTPropose.mine()').then(rows => {
+      ok(chunks >= 4, 'the id query is split into chunks (' + chunks + ')');
+      ok(maxIds <= 50, 'none larger than 50 ids (' + maxIds + ')');
+      ok(Array.isArray(rows), 'and mine() still resolves rather than throwing');
+    });
+  });
+
+  describe('an approved-but-uncommitted proposal stays approved across a refresh', () => {
+    // The last path to a CONTRADICTORY PAIR of committed files. `applied` came only
+    // from committed data/changes.jsonl, so between approving and pressing COMMIT the
+    // proposal re-derived to pending on the next load — and every drawer open calls
+    // refreshReview(). Measured: the card returned to the queue with a live معاينة
+    // button and could then be REJECTED. One COMMIT would write changes.jsonl with
+    // `fromProposal: PX` alongside proposals-reviewed.json saying `rejected PX`, and
+    // stateOf() lets approval win, so the rejection would sit in the repo inert.
+    const net = async (url) => {
+      const u = String(url);
+      if (u.indexOf('proposals-reviewed.json') !== -1) return { ok: false, status: 404 };
+      if (u.indexOf('changes.jsonl') !== -1) return { ok: true, status: 200, text: async () => '' };
+      return { ok: true, status: 200, json: async () => ([
+        { id: 'PX', created_at: '2026-08-20T07:00:00Z', author_node: 'p143', author_name: 'x',
+          note: null, ops: [{ op: 'add_wife', target: 'p2', id: 'pcx1', name: 'و', describe: '+ و' }] }]) };
+    };
+    const a = boot({ role: 'admin', net });
+    return run(a, 'FTReview.load()').then(() => {
+      run(a, 'FTReview.preview(FTReview.all()[0]);');
+      eq(run(a, 'FTReview.approve(FTReview.all()[0])'), 1, 'approved, one entry recorded');
+      eq(run(a, 'FTChangeLog.entries()[0].fromProposal'), 'PX', 'tagged with the proposal id');
+
+      // The refresh that used to undo it.
+      return run(a, 'FTReview.load()').then(() => {
+        eq(run(a, 'FTReview.all()[0]._state'), 'approved',
+           'it is STILL approved after a reload, because the local changelog counts');
+        eq(run(a, 'FTReview.pending().length'), 0, 'not back in the queue');
+        eq(run(a, 'FTReview.buttonState().count'), 0, 'and not counted on the badge');
+
+        // ⌘Z must still return it to pending LEGITIMATELY: undo truncates the log, so
+        // the id disappears and the proposal genuinely is undecided again.
+        run(a, 'FTChangeLog.clearLog();');
+        return run(a, 'FTReview.load()').then(() => {
+          eq(run(a, 'FTReview.all()[0]._state'), 'pending',
+             'once the log no longer claims it, it correctly returns to pending');
+        });
+      });
+    });
+  });
+
   describe('crafted proposals cannot break the domain rules', () => {
     const cases = [
       ['add_father to someone who already has one',

@@ -196,10 +196,42 @@ var FTReview = window.FTReview = (function () {
       const fetched = await FTSupa.select('proposals', 'select=*&order=created_at.desc');
       const app = await FTProposalStatus.fetchApplied();
       const rev = await FTProposalStatus.fetchDecisions();
-      const applied = app.ids;
+      // An approval that has not been COMMITTED yet still counts as approved.
+      //
+      // `applied` came only from committed data/changes.jsonl, so between approving
+      // and pressing COMMIT the proposal re-derived to `pending` on the next load —
+      // and every drawer open calls refreshReview(). Measured: the card returned to
+      // the queue with a live معاينة button, and FTReview.reject() on it succeeded.
+      // One COMMIT would then write changes.jsonl with `fromProposal: X` AND
+      // proposals-reviewed.json saying `rejected X`: a contradiction, committed, with
+      // stateOf() letting approval win so the rejection sits there inert forever.
+      //
+      // The local changelog is the missing half. It also makes ⌘Z self-correct: undo
+      // truncates the log, the id disappears, and the proposal legitimately returns
+      // to pending.
+      const applied = new Set(app.ids);
+      if (typeof FTChangeLog !== 'undefined') {
+        for (const e of FTChangeLog.entries()) {
+          if (e && e.fromProposal) applied.add(e.fromProposal);
+        }
+      }
       appliedOk = app.ok;
       reviewedOk = rev.ok;
       committed = rev.list;
+
+      // SELF-HEAL: flag local decisions that are already in the committed file.
+      //
+      // markCommitted only flags what THIS device published, so a decision committed
+      // from another browser stayed unflagged here forever and was appended again on
+      // every subsequent publish. That is why b96cda29 appears twice in the committed
+      // file: byte-identical lines, one per device that still thought it was pending.
+      const committedKeys = new Set(committed.map(decisionKey));
+      const local = localDecisions();
+      if (local.some(d => !d.committed && committedKeys.has(decisionKey(d)))) {
+        writeLocalDecisions(local.map(d =>
+          committedKeys.has(decisionKey(d)) ? Object.assign({}, d, { committed: true }) : d));
+      }
+
       decisions = decisionMap(allDecisions());
 
       // A row with `withdraws` set is not a proposal, it is the proposer asking us
@@ -386,7 +418,16 @@ var FTReview = window.FTReview = (function () {
     // Everything that belongs in data/proposals-reviewed.json: the committed
     // history plus this device's additions, append-only and time-ordered.
     reviewedFileBody: function (committed) {
+      // Deduped on the way out as well as healed on the way in, because this is the
+      // function that actually writes the file and a duplicate here is permanent.
+      const seen = new Set();
       const merged = (committed || []).concat(this.uncommitted())
+        .filter(d => {
+          const k = decisionKey(d);
+          if (seen.has(k)) return false;
+          seen.add(k);
+          return true;
+        })
         .map(d => ({ id: d.id, decision: d.decision, at: d.at,
                      note: d.note || null, by: d.by || null }))
         .sort((a, b) => String(a.at || '').localeCompare(String(b.at || '')));

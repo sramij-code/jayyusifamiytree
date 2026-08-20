@@ -57,12 +57,27 @@ function markFamilyDirty() {
   const hidden = typeof FTChangeLog === 'undefined' ? { missing: [] }
                                                     : FTChangeLog.draftDivergence();
 
+  // Two states that must shout, because both mean "what you see is not what is
+  // stored": a draft that could not be written, and another tab that overwrote it.
+  const saveFailed = typeof FTChangeLog !== 'undefined' && FTChangeLog.saveFailed();
+  const foreign = typeof FTChangeLog !== 'undefined' && FTChangeLog.foreignWrite();
+
   const el = document.getElementById('family-state');
   if (el) {
     const bits = [];
     if (n) bits.push(n + (n === 1 ? ' EDIT' : ' EDITS'));
     if (d) bits.push(d + (d === 1 ? ' DECISION' : ' DECISIONS'));
-    if (hidden.missing.length) {
+    if (saveFailed || foreign) {
+      el.textContent = saveFailed ? '✕ DRAFT NOT SAVED — THIS BROWSER REFUSED THE WRITE'
+                                  : '▲ ANOTHER TAB CHANGED THE DRAFT — RELOAD';
+      el.className = 'dirty';
+      el.title = saveFailed
+        ? 'localStorage rejected the write, so edits made now will be lost on reload. ' +
+          'Commit what you have, or free space and try again.'
+        : 'Another tab wrote the same draft. This tab\'s view may be stale, and the ' +
+          'changelog can end up describing an edit the tree does not contain. Reload ' +
+          'this tab, or close the other one.';
+    } else if (hidden.missing.length) {
       el.textContent = '▲ ' + hidden.missing.length + ' HIDDEN BY STALE DRAFT' +
                        (bits.length ? ' · ' + bits.join(' + ') + ' UNPUBLISHED' : '');
       el.className = 'dirty';
@@ -104,7 +119,11 @@ function markFamilyDirty() {
     // Mirrors the guard's condition — only an edit writes family.js, so a
     // decisions-only commit stays available.
     const blockedByStaleDraft = n > 0 && hidden.missing.length > 0;
-    commitBtn.disabled = connected && ((n === 0 && d === 0) || blockedByStaleDraft);
+    // A failed localStorage write means the tree holds a mutation the changelog has
+    // no line for: familyFileBody() serialises live state regardless, so publishing
+    // would commit a person with nothing in changes.jsonl describing them. Only the
+    // text warned about this before; it did not gate the button.
+    commitBtn.disabled = connected && ((n === 0 && d === 0) || blockedByStaleDraft || saveFailed);
     commitBtn.title = blockedByStaleDraft
       ? 'Blocked: this browser\'s draft hides ' + hidden.missing.length +
         ' person(s) that are in data/family.js (' + hidden.names.join(', ') +
@@ -386,6 +405,13 @@ async function commitFamily() {
   const edits = FTChangeLog.count();
   const decisions = typeof FTReview === 'undefined' ? 0 : FTReview.uncommitted().length;
   if (edits === 0 && decisions === 0) return;
+
+  // See markFamilyDirty: a rejected write leaves the tree ahead of its own changelog.
+  if (FTChangeLog.saveFailed()) {
+    setFamilyStatus('✕ لا تنشر: هذا المتصفح رفض حفظ المسودة · an edit is in the tree ' +
+      'with no changelog line — reload and redo it', 'dirty');
+    return;
+  }
 
   // NEVER publish a tree that is hiding committed people.
   //

@@ -3,6 +3,8 @@
 ============================================================================ */
 
 function initEventListeners() {
+  // Watch for another tab writing the same draft keys.
+  FTChangeLog.initTabWatch();
   // Publish-bar wiring first. These are the controls that get the work off
   // this device, so they must survive a failure in the tree wiring below —
   // otherwise a bug in the canvas means unpublished edits cannot be saved.
@@ -76,6 +78,14 @@ function init() {
   // the SVG layers exist.
   if (FTChangeLog.hasDraft()) {
     FTChangeLog.applyDraft();
+    // What reconciliation had to do — the row that pins which published tree this
+    // browser was working from.
+    if (typeof FTLog !== 'undefined') {
+      const rep = FTChangeLog.draftReport() || {};
+      FTLog.emit('draft.reconciled', { _kind: 'draft',
+        baseline_matched: rep.baselineMatched, restored: (rep.restored || []).length,
+        kept_deleted: (rep.keptDeleted || []).length, draft_saved_at: rep.savedAt });
+    }
     const home = homeNodeId();
     state.visibleNodes = new Set([home]);
     state.expandedNodes = new Set([home]);

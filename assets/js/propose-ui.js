@@ -79,7 +79,20 @@ function markProposeState() {
   }
 
   const send = document.getElementById('btn-propose-send');
-  if (send) send.disabled = n === 0;
+  if (send) {
+    // Identity is required, not just an edit.
+    //
+    // me() used to fall back to the tree root, so this could never be blocked. Now
+    // that it is honestly null for an unidentified visitor, an ungated SEND would
+    // POST author_node: null — and mine() can then only ever find that proposal via
+    // this browser's local id list, so clearing storage loses track of it entirely
+    // and the reviewer sees an anonymous row.
+    const who = FTPropose.me();
+    send.disabled = n === 0 || !who.node;
+    send.title = !who.node && n > 0
+      ? 'اختر اسمك أولاً · pick who you are, so your suggestion carries your name'
+      : '';
+  }
 
   const undo = document.getElementById('btn-propose-undo');
   if (undo) undo.disabled = !FTChangeLog.canUndo();

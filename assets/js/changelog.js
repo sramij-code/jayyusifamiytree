@@ -78,38 +78,101 @@ var FTChangeLog = window.FTChangeLog = (function () {
     // wrong. The tradeoff: if data/family.js is regenerated from the Excel
     // source while a draft is open, saving the draft overwrites the rebuild.
     // hasDraft() is what the publish bar uses to make that visible.
+    // A cheap fingerprint of the COMMITTED data a draft was built on.
+    //
+    // Counts alone are not enough: one person approved and one deleted between two
+    // publishes leaves the count identical while the membership differs. Summing
+    // over the ids catches that, and it is one pass over ~1,700 short strings at
+    // boot — cheaper than the JSON.parse of the draft itself.
+    baselineStamp: function () {
+      if (typeof familyData === 'undefined' || !familyData || !familyData.people) return null;
+      const ids = Object.keys(familyData.people);
+      let h = 0;
+      for (const id of ids) {
+        for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) | 0;
+      }
+      return { people: ids.length, partnerships: familyData.partnerships.length, hash: h };
+    },
+
+    // True when the last saveDraft() could not write.
+    //
+    // write() swallows the exception and returns false, and NO caller checked it, so a
+    // full or blocked localStorage meant the tree carried edits that would vanish on
+    // the next reload with nothing said. Surfaced now, because losing an edit silently
+    // is worse than any warning.
+    _saveFailed: false,
+    saveFailed: function () { return this._saveFailed; },
+
     saveDraft: function () {
-      return write(DRAFT_KEY, {
+      const ok = write(DRAFT_KEY, {
         people: state.people,
         partnerships: state.partnerships,
         savedAt: new Date().toISOString(),
+        // WHICH published tree this draft was built on. Without it a draft saved
+        // before someone was approved is indistinguishable from a current one, and
+        // applyDraft silently hides them — the Mona1 failure. Recorded on every
+        // save, so it tracks forward as the baseline moves.
+        baseline: this.baselineStamp(),
+        // Deletions recorded so far, carried IN THE DRAFT.
+        //
+        // applyDraft derives "stays deleted" from the changelog, but propose.js's
+        // submit() clears the log while deliberately keeping the draft. So after
+        // submitting a deletion, reconciliation found no delete_person entry and
+        // RESTORED the person: the proposer's own card read "− X · قيد المراجعة"
+        // while X was visibly back on their tree. Measured before this line existed.
+        deletedIds: this.entries()
+          .filter(e => e && e.op === 'delete_person' && e.target)
+          .map(e => e.target),
       });
+      this._saveFailed = !ok;
+      if (!ok && typeof FTLog !== 'undefined') {
+        FTLog.emit('error', { message: 'saveDraft failed — localStorage rejected the write',
+                              kind: 'storage' });
+      }
+      return ok;
     },
 
     draft: function () { return read(DRAFT_KEY, null); },
     hasDraft: function () { return this.draft() !== null; },
 
-    // What the saved draft HIDES from the committed data.
+    // What the LIVE TREE is missing relative to the committed data.
     //
     // applyDraft replaces state.people wholesale, so a draft saved before someone
-    // was committed keeps them off this browser's tree indefinitely — and because
-    // the changelog can be empty, the publish bar cheerfully said "TREE IN SYNC"
-    // while the view was missing a person data/family.js contains. That produced
-    // the worst kind of confusion: an admin reviewing a proposal to delete Ola1,
-    // unable to see Ola1, with the proposal refusing to apply and staying pending
-    // forever because its target did not exist in the draft.
+    // was committed keeps them off this browser's tree — and every write path
+    // (COMMIT, EXPORT) serialises state.people verbatim, so publishing then
+    // DELETES them with no changelog entry naming it.
     //
-    // Only the committed-but-missing direction is a problem. Draft-only people are
-    // normal: they are unpublished admin edits, or a proposer's own sent
-    // suggestion, which the draft exists specifically to keep on screen.
+    // MEASURED AGAINST state.people, NOT THE SAVED DRAFT. That distinction is the
+    // whole point: this used to read the draft, and undo() calls clearDraft() as
+    // soon as the log empties while restoring a snapshot that is itself the stale
+    // tree. So undoing the last edit made the draft null, this reported "clean",
+    // both publish guards passed, and EXPORT happily wrote a family.js with the
+    // person deleted. Verified: 1746 people serialised over a committed 1747.
     //
-    // initState deep-copies familyData, so it stays an untouched baseline no
-    // matter how much state has been mutated.
+    // Only the committed-but-missing direction is a problem. Extra people in the
+    // tree are normal — unpublished admin edits, or a proposer's own suggestion,
+    // which their draft exists to keep on screen.
     draftDivergence: function () {
-      const d = this.draft();
       const none = { missing: [], names: [] };
-      if (!d || !d.people || typeof familyData === 'undefined') return none;
-      const missing = Object.keys(familyData.people).filter(id => !d.people[id]);
+      if (typeof familyData === 'undefined' || !familyData || !familyData.people) return none;
+      if (typeof state === 'undefined' || !state || !state.people) return none;
+      // hasOwnProperty, not truthiness: state.people['toString'] is a function and
+      // would mask a genuinely missing person. See personExists in core/state.js.
+      const has = id => Object.prototype.hasOwnProperty.call(state.people, id);
+
+      // An UNPUBLISHED DELETION is not staleness. Someone the reviewer removed on
+      // purpose is committed-but-absent for a perfectly good reason, and the whole
+      // point of the next commit is to publish that removal. Without this the guard
+      // fired on every pending deletion and blocked the commit that would apply it —
+      // it would have blocked the delete-Mona1 workflow outright.
+      //
+      // The local changelog is what accounts for it: delete_person names the target.
+      // Anything missing WITHOUT such an entry is unexplained, and unexplained is
+      // exactly the hazard — a draft built on an older published tree.
+      const accounted = new Set(
+        this.entries().filter(e => e && e.op === 'delete_person').map(e => e.target));
+      const missing = Object.keys(familyData.people)
+        .filter(id => !has(id) && !accounted.has(id));
       return {
         missing: missing,
         names: missing.slice(0, 5).map(id => familyData.people[id].name),
@@ -124,11 +187,94 @@ var FTChangeLog = window.FTChangeLog = (function () {
     // touch visibleNodes/expandedNodes — the caller decides what the viewport
     // does, because on boot that is "open on the home node" and after a
     // discard it is "leave the view alone".
+    // Apply the draft, then RECONCILE it against the committed data.
+    //
+    // Applying alone was the bug: it replaces state wholesale, so anyone approved
+    // and published after the draft was saved vanished from this browser — and
+    // every write path serialises state verbatim, so publishing then deleted them.
+    // Discarding the draft fixed the view but threw away the unpublished edits.
+    //
+    // Reconciling keeps both. A person present in the committed data but absent
+    // from the draft is added back, along with any partnership the draft has never
+    // heard of (matched by id — the draft never renames one). Where both hold the
+    // same partnership id, the draft's version wins, because that is the edit.
+    //
+    // THE ONE EXCEPTION is an unpublished deletion, which looks exactly like "never
+    // had them". The local changelog is what tells them apart: anyone named by a
+    // delete_person entry stays deleted. Without that check, reconciliation would
+    // silently resurrect people the reviewer had removed but not yet published.
     applyDraft: function () {
       const d = this.draft();
       if (!d || !d.people || !d.partnerships) return false;
       state.people = d.people;
       state.partnerships = d.partnerships;
+
+      const report = {
+        baselineMatched: true,
+        restored: [],
+        keptDeleted: [],
+        savedAt: d.savedAt || null,
+      };
+      if (typeof familyData !== 'undefined' && familyData && familyData.people) {
+        const now = this.baselineStamp();
+        const was = d.baseline || null;
+        // A draft written before baselines were stamped has `was === null`. Treat it
+        // as a mismatch rather than as current: it is the older, riskier case.
+        report.baselineMatched = !!(was && now && was.people === now.people &&
+                                    was.partnerships === now.partnerships && was.hash === now.hash);
+
+        // The union of what the log still says and what the draft remembers. The log
+        // is cleared on submit; the draft is not.
+        const deleted = new Set(
+          this.entries().filter(e => e && e.op === 'delete_person').map(e => e.target));
+        for (const id of (Array.isArray(d.deletedIds) ? d.deletedIds : [])) deleted.add(id);
+        const has = id => Object.prototype.hasOwnProperty.call(state.people, id);
+
+        for (const id of Object.keys(familyData.people)) {
+          if (has(id)) continue;
+          if (deleted.has(id)) { report.keptDeleted.push(id); continue; }
+          state.people[id] = Object.assign({}, familyData.people[id]);
+          report.restored.push(id);
+        }
+
+        if (report.restored.length) {
+          const restored = new Set(report.restored);
+          const byId = new Map(state.partnerships.map(pp => [pp.id, pp]));
+
+          // Repair SLOTS in partnerships the draft already has. Restoring the person
+          // alone left a partnership recorded as [null, …] — no partners at all —
+          // which breaks the tree invariants and renders as an orphan node. Gated on
+          // `restored`, so a slot the draft deliberately emptied (an unpublished
+          // deletion, which is in keptDeleted) is left empty.
+          for (const cpp of familyData.partnerships) {
+            const mine = byId.get(cpp.id);
+            if (!mine) continue;
+            for (let i = 0; i < cpp.partners.length; i++) {
+              const who = cpp.partners[i];
+              if (who && restored.has(who) && mine.partners[i] !== who) mine.partners[i] = who;
+            }
+            for (const c of cpp.children) {
+              if (c && restored.has(c) && mine.children.indexOf(c) === -1) mine.children.push(c);
+            }
+          }
+
+          const known = new Set(state.partnerships.map(pp => pp.id));
+          for (const pp of familyData.partnerships) {
+            if (known.has(pp.id)) continue;
+            // Only bring back a partnership that actually involves someone restored,
+            // so an unrelated structural edit in the draft is left alone.
+            const touches = pp.partners.some(x => x && report.restored.indexOf(x) !== -1) ||
+                            pp.children.some(c => c && report.restored.indexOf(c) !== -1);
+            if (!touches) continue;
+            state.partnerships.push({
+              id: pp.id,
+              partners: pp.partners.slice(),
+              children: pp.children.slice(),
+            });
+          }
+        }
+      }
+      this._draftReport = report;
 
       // initState set the id counter from the BASE data, so it sits below any
       // id the draft already contains — the next generateId() would hand out
@@ -144,6 +290,38 @@ var FTChangeLog = window.FTChangeLog = (function () {
       invalidateChildIndex();
       return true;
     },
+
+    // ANOTHER TAB WROTE OUR KEYS.
+    //
+    // Two admin tabs share one origin and one set of keys, with no coordination, so
+    // the last saveDraft wins. Measured: tab 2 overwrote tab 1's draft while the
+    // CHANGELOG kept both entries — the log then described an edit the tree did not
+    // contain, which is the same divergence class the publish guards exist for.
+    //
+    // The storage event fires only in OTHER tabs, which is exactly the signal needed.
+    // This does not coordinate the tabs — that would need locks and is more machinery
+    // than one reviewer needs — it makes the collision visible instead of silent.
+    _foreignWrite: null,
+    foreignWrite: function () { return this._foreignWrite; },
+
+    initTabWatch: function () {
+      try {
+        const self = this;
+        window.addEventListener('storage', function (e) {
+          if (!e || (e.key !== DRAFT_KEY && e.key !== LOG_KEY)) return;
+          self._foreignWrite = { key: e.key, at: new Date().toISOString() };
+          if (typeof FTLog !== 'undefined') {
+            FTLog.emit('error', { message: 'another tab wrote ' + e.key, kind: 'multi_tab' });
+          }
+          if (typeof markFamilyDirty === 'function') markFamilyDirty();
+          if (typeof markProposeState === 'function') markProposeState();
+        });
+      } catch (e) { /* no window, or no storage events: nothing to watch */ }
+    },
+
+    // What the last applyDraft() had to do. Null until one runs.
+    draftReport: function () { return this._draftReport || null; },
+    _draftReport: null,
 
     // ---- editor identity -------------------------------------------------
 

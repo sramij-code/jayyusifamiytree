@@ -48,6 +48,15 @@ function isFastForwardRace(err) {
   return /not a fast forward/i.test(m) || (/\b422\b/.test(m) && /refs\/heads/.test(m));
 }
 
+// Every error out of api() carries the HTTP status, because callers must be able to
+// tell "absent" (404, genuinely empty before the first publish) from "unreadable"
+// (anything else) — treating the second as empty is what silently deleted committed
+// history. Only the fallback throw carried it before.
+function withStatus(status, err) {
+  err.status = status;
+  return err;
+}
+
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
@@ -122,25 +131,25 @@ var FTGitHub = window.FTGitHub = (function () {
       const needs = res.headers.get('x-accepted-github-permissions') || '';
 
       if (res.status === 401) {
-        throw new Error('Token rejected (401). It is invalid or expired. ' + detail);
+        throw withStatus(res.status, new Error('Token rejected (401). It is invalid or expired. ' + detail));
       }
       if (res.status === 403) {
-        throw new Error(
+        throw withStatus(res.status, new Error(
           'Token lacks permission (403) for ' + path + '. ' +
           (needs ? 'GitHub requires: ' + needs + '. ' : '') +
           'Fine-grained tokens need Repository permissions → Contents: Read and write, ' +
-          'with this repository selected. ' + detail);
+          'with this repository selected. ' + detail));
       }
       if (res.status === 404) {
-        throw new Error(
+        throw withStatus(res.status, new Error(
           'Not found (404) for ' + path + '. Either the token does not list ' +
           OWNER + '/' + REPO + ' under its selected repositories, or the branch ' +
-          BRANCH + ' does not exist. ' + detail);
+          BRANCH + ' does not exist. ' + detail));
       }
       if (res.status === 422) {
         // Kept verbatim: publish() matches on this text to detect a lost race
         // for the branch tip and retry from a fresh read.
-        throw new Error('GitHub 422 on ' + path + '. ' + detail);
+        throw withStatus(res.status, new Error('GitHub 422 on ' + path + '. ' + detail));
       }
       // The status is carried on the error because "absent" and "unreadable" must
       // be distinguishable: one is safe to treat as empty, the other must abort.
@@ -309,6 +318,10 @@ var FTGitHub = window.FTGitHub = (function () {
       const base = '/repos/' + OWNER + '/' + REPO;
       const ATTEMPTS = 4;
 
+      if (typeof FTLog !== 'undefined') {
+        FTLog.emit('publish.commit.start', { edits: edits, decisions: pendingDecisions.length, branch: BRANCH });
+      }
+
       for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
         if (attempt > 1) {
           // Wait before re-reading, and lengthen each time.
@@ -396,13 +409,65 @@ var FTGitHub = window.FTGitHub = (function () {
             body: JSON.stringify({ sha: commit.sha, force: false }),
           });
         } catch (e) {
-          if (isFastForwardRace(e) && attempt < ATTEMPTS) continue;
+          // DID OUR OWN WRITE ALREADY LAND?
+          //
+          // This produced a FALSE FAILURE with real consequences. The REST API is
+          // read-after-write eventually consistent, so: attempt 1's PATCH succeeds
+          // server-side, the client does not register it, attempt 2 re-reads the ref
+          // and is handed the PRE-MOVE sha, builds a commit on that stale parent, and
+          // is correctly refused as not a fast forward. Attempts 3 and 4 repeat. The
+          // user is told it failed while their commit is sitting on the branch.
+          //
+          // Observed: 332dedd landed at 02:44:36 carrying both decisions while the UI
+          // reported four failed attempts. The old advice — "press COMMIT again" —
+          // would then have recorded the same decisions twice, because the client
+          // still had them flagged uncommitted.
+          //
+          // The tree sha is the check: if the branch tip already points at the exact
+          // tree we built, our content IS published.
           if (isFastForwardRace(e)) {
-            // Out of attempts. Nothing is lost — the draft is untouched — but
-            // say what to do, because the raw GitHub wording explains nothing.
+            try {
+              const fresh = await api(base + '/git/ref/heads/' + BRANCH, { method: 'GET' });
+              const head = await api(base + '/git/commits/' + fresh.object.sha, { method: 'GET' });
+              if (head.tree && head.tree.sha === tree.sha) {
+                say('already published');
+                if (typeof FTLog !== 'undefined') {
+                  FTLog.emit('publish.commit.ok', { _kind: 'commit',
+                    _id: fresh.object.sha.slice(0, 7), edits: edits,
+                    decisions: pendingDecisions.length, attempts: attempt,
+                    via: 'race_but_landed' });
+                }
+                if (pendingDecisions.length > 0) FTReview.markCommitted(pendingDecisions);
+                return { sha: fresh.object.sha, count: edits,
+                         decisions: pendingDecisions.length, branch: BRANCH,
+                         attempts: attempt, alreadyLanded: true };
+              }
+            } catch (probe) { /* fall through to retry / failure */ }
+          }
+
+          if (isFastForwardRace(e) && attempt < ATTEMPTS) {
+            if (typeof FTLog !== 'undefined') {
+              FTLog.emit('publish.commit.fail', { reason: 'fast_forward_race',
+                attempt: attempt, edits: edits, decisions: pendingDecisions.length });
+            }
+            continue;
+          }
+          if (isFastForwardRace(e)) {
+            if (typeof FTLog !== 'undefined') {
+              FTLog.emit('publish.commit.fail', { reason: 'fast_forward_exhausted',
+                attempts: ATTEMPTS, edits: edits, decisions: pendingDecisions.length });
+            }
+            // Deliberately does NOT say "press COMMIT again": retrying blindly is what
+            // duplicates a commit that actually landed.
             throw new Error('The branch kept moving while publishing (' + ATTEMPTS +
-              ' attempts). Your edits are safe in the draft — reload the page ' +
-              'and press COMMIT again.');
+              ' attempts). Nothing was lost — your edits are still in the draft. ' +
+              'BEFORE retrying, reload the page: if the indicator goes clean, the ' +
+              'commit already landed and pressing COMMIT again would record it twice.');
+          }
+          if (typeof FTLog !== 'undefined') {
+            FTLog.emit('publish.commit.fail', {
+              reason: String((e && e.message) || '').slice(0, 120),
+              edits: edits, decisions: pendingDecisions.length, attempt: attempt });
           }
           throw e;
         }
@@ -411,6 +476,10 @@ var FTGitHub = window.FTGitHub = (function () {
         // early would leave a decision looking committed when it was not.
         if (pendingDecisions.length > 0) FTReview.markCommitted(pendingDecisions);
 
+        if (typeof FTLog !== 'undefined') {
+          FTLog.emit('publish.commit.ok', { _kind: 'commit', _id: commit.sha.slice(0, 7),
+            edits: edits, decisions: pendingDecisions.length, attempts: attempt });
+        }
         return { sha: commit.sha, count: edits, decisions: pendingDecisions.length,
                  branch: BRANCH, attempts: attempt };
       }

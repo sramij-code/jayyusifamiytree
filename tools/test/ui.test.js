@@ -456,6 +456,82 @@ module.exports = function ({ describe, ok, eq }) {
     ok(cleaned > 0, 'the row was queued');
   });
 
+  describe('a commit that actually landed is not reported as a failure', () => {
+    // The false failure, reproduced. GitHub is read-after-write eventually
+    // consistent: attempt 1's PATCH lands, the client misses it, attempt 2 re-reads
+    // the ref and gets the PRE-MOVE sha, builds on that stale parent, and is refused
+    // as not a fast forward. The user was told it failed while their commit sat on
+    // the branch — and told to press COMMIT again, which would record it twice.
+    let patched = 0;
+    const OURTREE = 'tree-ours';
+    const H = { get: () => null };   // api() reads res.headers.get(...)
+    const R = o => Object.assign({ headers: H, text: async () => '', json: async () => ({}) }, o);
+    const net = async (url, init) => {
+      const u = String(url), m = (init && init.method) || 'GET';
+      if (/changes\.jsonl/.test(u) && /api\.github/.test(u)) return R({ ok: false, status: 404, text: async () => '' });
+      if (/proposals-reviewed\.json/.test(u) && /api\.github/.test(u)) return R({ ok: false, status: 404, text: async () => '' });
+      if (/rest\/v1\/ops_log/.test(u)) return R({ ok: true, status: 201, json: async () => ([]) });
+      if (/rest\/v1\/proposals/.test(u)) return R({ ok: true, status: 200, json: async () => ([]) });
+      if (/changes\.jsonl|proposals-reviewed\.json/.test(u)) return R({ ok: false, status: 404, text: async () => '' });
+
+      if (/\/git\/ref\/heads\//.test(u)) {
+        // After our PATCH, the ref reports the NEW head — which is what lets the
+        // client discover that its own write already landed.
+        return { ok: true, status: 200,
+                 json: async () => ({ object: { sha: patched ? 'sha-new' : 'sha-old' } }) };
+      }
+      if (/\/git\/commits\/sha-new/.test(u)) {
+        return { ok: true, status: 200, json: async () => ({ sha: 'sha-new', tree: { sha: OURTREE } }) };
+      }
+      if (/\/git\/commits\/sha-old/.test(u)) {
+        return { ok: true, status: 200, json: async () => ({ sha: 'sha-old', tree: { sha: 'tree-old' } }) };
+      }
+      if (/\/git\/blobs/.test(u)) return { ok: true, status: 201, json: async () => ({ sha: 'blob-1' }) };
+      if (/\/git\/trees/.test(u)) return { ok: true, status: 201, json: async () => ({ sha: OURTREE }) };
+      if (/\/git\/commits$/.test(u)) return { ok: true, status: 201, json: async () => ({ sha: 'sha-new' }) };
+      if (/\/git\/refs\/heads\//.test(u) && m === 'PATCH') {
+        patched++;   // it DOES land, every time
+        return R({ ok: false, status: 422, text: async () => 'Update is not a fast forward' });
+      }
+      throw new TypeError('unexpected: ' + m + ' ' + u);
+    };
+
+    const a = bootUI({ role: 'admin', store: {
+      'ftRejectedProposals': JSON.stringify([
+        { id: 'rr', decision: 'rejected', at: '2026-08-20T02:44:30Z', note: null, by: 'admin' }]),
+    }, net });
+    run(a, "FTGitHub.setToken('fake-token');");
+    eq(run(a, 'FTReview.uncommitted().length'), 1, 'one decision to publish');
+
+    return run(a, `FTGitHub.publish(function(){}).then(
+        function (r) { return { ok: true, r: r }; },
+        function (e) { return { ok: false, msg: e.message }; })`).then(out => {
+      ok(out.ok, 'publish resolves instead of reporting a false failure', JSON.stringify(out).slice(0, 160));
+      if (out.ok) {
+        eq(out.r.alreadyLanded, true, 'and says the write had already landed');
+        eq(out.r.sha, 'sha-new', 'reporting the sha that is actually on the branch');
+      }
+      // The decisive consequence: the decision is marked committed, so a retry
+      // cannot append it a second time.
+      eq(run(a, 'FTReview.uncommitted().length'), 0,
+         'the decision is flagged committed, so pressing COMMIT again cannot duplicate it');
+    });
+  });
+
+  describe('the exhausted-retry message no longer tells the user to retry blindly', () => {
+    const src = require('fs').readFileSync(
+      require('path').join(require('./harness.js').REPO, 'assets/js/admin/github.js'), 'utf8');
+    ok(!/press COMMIT again\.'/.test(src),
+       'the old "press COMMIT again" advice is gone — that is what duplicated a landed commit');
+    ok(/would record it twice/.test(src), 'and it warns about exactly that');
+    ok(/reload the page: if the indicator goes clean/.test(src),
+       'telling the user how to check whether it landed');
+    // Every outcome of the publish path emits, or the log cannot answer this again.
+    for (const ev of ['publish.commit.start', 'publish.commit.ok', 'publish.commit.fail']) {
+      ok(src.indexOf(ev) !== -1, 'instrumented: ' + ev);
+    }
+  });
+
   describe('the suite never writes to data/', () => {
     // The owner asked for the tree to be left alone. Everything above runs on
     // in-memory copies; this asserts it rather than trusting it.

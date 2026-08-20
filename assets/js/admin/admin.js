@@ -5,6 +5,10 @@
 function initEventListeners() {
   // Watch for another tab writing the same draft keys.
   FTChangeLog.initTabWatch();
+  // Keep the centre when the window is resized. See core/render.js.
+  // typeof-guarded like the other optional wiring here: render.js owns it, and
+  // the test harness deliberately never loads the renderer.
+  if (typeof initViewportWatch === 'function') initViewportWatch();
   // Publish-bar wiring first. These are the controls that get the work off
   // this device, so they must survive a failure in the tree wiring below —
   // otherwise a bug in the canvas means unpublished edits cannot be saved.

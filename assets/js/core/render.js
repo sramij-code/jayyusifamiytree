@@ -281,6 +281,50 @@ function centerOnNode(personId, smooth = false) {
   }
 }
 
+// Wire the watcher. Called from both bootstraps.
+function initViewportWatch() {
+  try {
+    initViewportWatchUnsafe();
+  } catch (e) {
+    // A view convenience must never stop the page from booting.
+  }
+}
+
+function initViewportWatchUnsafe() {
+  const el = document.getElementById('tree-svg');
+  if (!el || typeof window === 'undefined' || !window.addEventListener) return;
+
+  let prev = { w: el.clientWidth, h: el.clientHeight };
+  let timer = null;
+
+  function settle() {
+    timer = null;
+    const W = el.clientWidth, H = el.clientHeight;
+    const active = document.activeElement ? document.activeElement.tagName : null;
+    if (!shouldRecentre(prev, W, H, active)) {
+      // Still record the size, or a later resize would be measured from a stale
+      // baseline and the tree would jump by the accumulated difference.
+      if (W > 0 && H > 0) prev = { w: W, h: H };
+      return;
+    }
+    if (zoomBehavior) {
+      const cur = d3.zoomTransform(el);
+      const next = recentreTransform(cur, W - prev.w, H - prev.h);
+      d3.select('#tree-svg').call(
+        zoomBehavior.transform,
+        d3.zoomIdentity.translate(next.x, next.y).scale(next.k));
+    }
+    prev = { w: W, h: H };
+  }
+
+  // Debounced: a window drag fires resize continuously, and re-applying a transform
+  // per event fights the drag and thrashes layout.
+  window.addEventListener('resize', function () {
+    if (timer !== null) clearTimeout(timer);
+    timer = setTimeout(settle, 150);
+  });
+}
+
 // Frame a set of nodes, zooming out if they do not fit at 1:1.
 //
 // centerOnNode pins scale at 1.0, which is right on a desktop but clips on a

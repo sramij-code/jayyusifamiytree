@@ -357,3 +357,44 @@ function resolveOverlaps(ids, layout) {
     }
   }
 }
+
+// ---------------------------------------------------------------------------
+// VIEWPORT ARITHMETIC
+//
+// Here rather than in render.js because it is geometry, and render.js owns the
+// SVG and the d3 zoom surface — the split this project keeps deliberately. It
+// also means the arithmetic is unit-testable: the suite loads layout.js and
+// never loads the renderer.
+// ---------------------------------------------------------------------------
+
+// Keep whatever is centred, centred, when the viewport changes size.
+//
+// PURE, so the arithmetic is testable without a browser. Given the current zoom
+// transform and how much the viewport grew or shrank, return the new translation.
+//
+// The world point under the viewport centre is ((W/2 - x)/k, (H/2 - y)/k). Holding
+// that point at the new centre with k unchanged reduces to shifting by half the
+// size delta — the scale cancels out, which is why the zoom level is preserved
+// exactly rather than approximately.
+function recentreTransform(t, dW, dH) {
+  return { k: t.k, x: t.x + dW / 2, y: t.y + dH / 2 };
+}
+
+// Should a resize event actually move the tree?
+//
+// The trap this exists for: on iOS the on-screen KEYBOARD fires resize. Re-framing
+// then yanks the tree while someone is typing a name into the add-relative dialog —
+// and this project has already shipped one bug where the keyboard covered that very
+// dialog. So a resize while an editable element has focus is ignored outright.
+//
+// Also ignored: an event where the size did not actually change (some browsers fire
+// resize on scroll or on a devicePixelRatio change), because re-applying a transform
+// for no reason can interrupt a running d3 transition.
+function shouldRecentre(prev, W, H, activeTag) {
+  if (!prev) return false;                       // nothing to compare against yet
+  if (W <= 0 || H <= 0) return false;            // hidden tab, or a display:none parent
+  if (W === prev.w && H === prev.h) return false;
+  const editing = activeTag === 'INPUT' || activeTag === 'TEXTAREA' || activeTag === 'SELECT';
+  if (editing) return false;                     // the keyboard case
+  return true;
+}

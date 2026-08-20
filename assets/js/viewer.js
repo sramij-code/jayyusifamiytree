@@ -15,6 +15,10 @@
 function initEventListeners() {
   // Watch for another tab writing the same draft keys.
   FTChangeLog.initTabWatch();
+  // Keep the centre when the window is resized. See core/render.js.
+  // typeof-guarded like the other optional wiring here: render.js owns it, and
+  // the test harness deliberately never loads the renderer.
+  if (typeof initViewportWatch === 'function') initViewportWatch();
   document.getElementById('tree-svg').addEventListener('click', () => hideNodePanel());
   document.getElementById('btn-close-panel').addEventListener('click', () => hideNodePanel());
   document.getElementById('btn-expand-subtree').addEventListener('click', () => {

@@ -381,6 +381,35 @@ module.exports = function ({ describe, ok, eq }) {
     ok(/_showHistory = true/.test(fn), 'openReviewHistory forces history on');
   });
 
+  describe('the resize watcher is debounced and cannot break a boot', () => {
+    // A window drag fires resize continuously; re-applying a transform per event
+    // fights the drag and thrashes layout. And a view convenience must never stop the
+    // page loading.
+    const r = codeOnly(read('assets/js/core/render.js'));
+    const l = codeOnly(read('assets/js/core/layout.js'));
+
+    ok(/function initViewportWatch/.test(r), 'render.js owns the watcher (it touches d3)');
+    ok(/setTimeout\(settle, 150\)/.test(r), 'and debounces the resize event');
+    ok(/clearTimeout\(timer\)/.test(r), 'coalescing a burst into one adjustment');
+    ok(/try \{[\s\S]{0,120}initViewportWatchUnsafe/.test(r),
+       'wrapped so a failure cannot stop the boot');
+
+    // The arithmetic lives in layout.js, per this project's own split — which is also
+    // what makes it testable, since the suite never loads the renderer.
+    ok(/function recentreTransform/.test(l), 'layout.js owns the geometry');
+    ok(/function shouldRecentre/.test(l), 'and the guard predicate');
+    ok(!/recentreTransform/.test(r.replace(/initViewportWatchUnsafe[\s\S]*/, '')) ||
+       /recentreTransform\(/.test(r), 'render.js only calls it');
+
+    // Both bootstraps must wire it, and guard it, since render.js is not always loaded.
+    for (const f of ['assets/js/viewer.js', 'assets/js/admin/admin.js']) {
+      const src = codeOnly(read(f));
+      ok(/initViewportWatch/.test(src), f + ' wires the watcher');
+      ok(/typeof initViewportWatch === 'function'/.test(src),
+         f + ' guards it, as the harness never loads the renderer');
+    }
+  });
+
   describe('both node class builders honour markedForRemovalIds', () => {
     // The suite cannot see rendering, so this is checked structurally. render.js
     // builds the class list TWICE — once for entering nodes and once for the

@@ -98,6 +98,63 @@ module.exports = function ({ describe, ok, eq }) {
     eq(invariants(c), [], 'invariants hold');
   });
 
+  describe('resizing the window keeps the centre and the zoom', () => {
+    // The requested behaviour: correct the off-to-one-side drift after a resize
+    // WITHOUT overriding a view the user chose. Holding the centred world point with
+    // k unchanged reduces to shifting by half the size delta — the scale cancels, so
+    // the zoom is preserved exactly rather than approximately.
+    const c = boot({ role: 'admin' });
+
+    for (const [W0, H0, W1, H1] of [
+      [1200, 800, 1600, 800],   // widen
+      [1200, 800, 700, 900],    // narrow and taller
+      [1200, 800, 1201, 800],   // one pixel
+      [390, 700, 700, 390],     // orientation change
+    ]) {
+      for (const k of [1, 0.55, 2.3]) {
+        const t = { k: k, x: 123, y: -45 };
+        const before = { x: (W0 / 2 - t.x) / t.k, y: (H0 / 2 - t.y) / t.k };
+        const r = run(c, 'recentreTransform(' + JSON.stringify(t) + ',' + (W1 - W0) + ',' + (H1 - H0) + ')');
+        const after = { x: (W1 / 2 - r.x) / r.k, y: (H1 / 2 - r.y) / r.k };
+        const label = W0 + 'x' + H0 + '→' + W1 + 'x' + H1 + ' @k=' + k;
+        eq(r.k, t.k, label + ': the zoom level is untouched');
+        ok(Math.abs(before.x - after.x) < 1e-9 && Math.abs(before.y - after.y) < 1e-9,
+           label + ': the centred point stays centred',
+           JSON.stringify({ before: before, after: after }));
+      }
+    }
+  });
+
+  describe('a resize from the on-screen keyboard is ignored', () => {
+    // THE trap. On iOS the keyboard fires resize, so a naive handler yanks the tree
+    // while someone is typing a name into the add-relative dialog — and this project
+    // has already shipped one bug where that keyboard covered that very dialog.
+    const c = boot({ role: 'admin' });
+    const prev = { w: 1200, h: 800 };
+    const P = JSON.stringify(prev);
+
+    eq(run(c, 'shouldRecentre(' + P + ',1200,500,"INPUT")'), false,
+       'a height-only shrink while an INPUT has focus is ignored');
+    eq(run(c, 'shouldRecentre(' + P + ',1200,500,"TEXTAREA")'), false,
+       'and while a TEXTAREA has focus');
+    eq(run(c, 'shouldRecentre(' + P + ',1200,500,"SELECT")'), false,
+       'and a SELECT, which opens a picker on a phone');
+
+    // Everything else that must NOT move the tree.
+    eq(run(c, 'shouldRecentre(' + P + ',1200,800,null)'), false,
+       'a resize event with no actual size change is ignored');
+    eq(run(c, 'shouldRecentre(' + P + ',0,0,null)'), false,
+       'a zero-sized viewport (hidden tab) is ignored');
+    eq(run(c, 'shouldRecentre(null,1600,800,null)'), false,
+       'the first event is ignored: there is no baseline to measure from');
+
+    // And the cases that SHOULD move it.
+    eq(run(c, 'shouldRecentre(' + P + ',1600,800,null)'), true, 'a genuine widen acts');
+    eq(run(c, 'shouldRecentre(' + P + ',390,700,null)'), true, 'an orientation change acts');
+    eq(run(c, 'shouldRecentre(' + P + ',1200,500,"BUTTON")'), true,
+       'a height change with a non-editable element focused still acts');
+  });
+
   describe('layout places every visible person', () => {
     const c = boot({ role: 'admin' });
     run(c, 'expandAll();');

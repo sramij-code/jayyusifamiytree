@@ -153,7 +153,7 @@ var FTChangeLog = window.FTChangeLog = (function () {
     // tree are normal — unpublished admin edits, or a proposer's own suggestion,
     // which their draft exists to keep on screen.
     draftDivergence: function () {
-      const none = { missing: [], names: [] };
+      const none = { missing: [], names: [], extra: [], extraNames: [] };
       if (typeof familyData === 'undefined' || !familyData || !familyData.people) return none;
       if (typeof state === 'undefined' || !state || !state.people) return none;
       // hasOwnProperty, not truthiness: state.people['toString'] is a function and
@@ -173,9 +173,31 @@ var FTChangeLog = window.FTChangeLog = (function () {
         this.entries().filter(e => e && e.op === 'delete_person').map(e => e.target));
       const missing = Object.keys(familyData.people)
         .filter(id => !has(id) && !accounted.has(id));
+
+      // AND THE OTHER DIRECTION: people in the tree that nothing accounts for.
+      //
+      // This half was absent, and it is the mirror of the same failure. A draft saved
+      // BEFORE someone was deleted still holds them, applyDraft applies the draft
+      // wholesale, and reconciliation only ever ADDS people back — so the person
+      // reappears on that browser's tree. Measured: with a pre-deletion draft,
+      // `missing` was 0, commitBlockedReason() was null, and publishing would have
+      // written the deleted person back into family.js with no changelog line
+      // describing it, silently undoing a committed deletion.
+      //
+      // "Accounted for" means a local changelog entry ADDS them. A genuine
+      // unpublished addition therefore never trips this; only a leftover does.
+      const added = new Set(
+        this.entries()
+          .filter(e => e && e.id && (e.op === 'add_child' || e.op === 'add_wife' || e.op === 'add_father'))
+          .map(e => e.id));
+      const extra = Object.keys(state.people)
+        .filter(id => !Object.prototype.hasOwnProperty.call(familyData.people, id) && !added.has(id));
+
       return {
         missing: missing,
         names: missing.slice(0, 5).map(id => familyData.people[id].name),
+        extra: extra,
+        extraNames: extra.slice(0, 5).map(id => state.people[id].name),
       };
     },
 

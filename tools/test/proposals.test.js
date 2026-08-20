@@ -1435,6 +1435,64 @@ module.exports = function ({ describe, ok, eq }) {
     });
   });
 
+  describe('a draft holding someone already deleted cannot resurrect them', () => {
+    // The mirror of the stale-draft bug, and the one the earlier fix missed.
+    // draftDivergence only looked for committed-but-MISSING people, so a draft saved
+    // BEFORE a deletion still held that person, applyDraft applied it wholesale, and
+    // reconciliation only ever ADDS people back. Measured with the real case (Mona1,
+    // deleted in 67e2083): missing was 0, commitBlockedReason was null, and publishing
+    // would have written her back into family.js with no changelog line — silently
+    // undoing a committed deletion.
+    const committed = loadFamily();
+    const GHOST = 'pghost1';
+    const pre = JSON.parse(JSON.stringify(committed));
+    pre.people[GHOST] = { id: GHOST, name: 'شبح', gender: 'female', generation: 2 };
+    pre.partnerships.push({ id: 'ppghost', partners: ['p4', GHOST], children: [] });
+
+    const a = boot({ store: {
+      'ftFamilyDraft:admin': JSON.stringify({ people: pre.people, partnerships: pre.partnerships }),
+      'ftChangeLog:admin': '[]',
+    }, role: 'admin' });
+    run(a, 'if (FTChangeLog.hasDraft()) FTChangeLog.applyDraft();');
+
+    ok(run(a, '!!state.people[' + JSON.stringify(GHOST) + ']'),
+       'the draft puts them on this browser\'s tree');
+    const div = run(a, 'FTChangeLog.draftDivergence()');
+    eq(div.missing, [], 'nothing is missing — which is why this used to pass unnoticed');
+    eq(div.extra, [GHOST], 'but they are reported as an unaccounted extra');
+    eq(div.extraNames, ['شبح'], 'named, so the warning can say who');
+
+    // With no edits, family.js is never written, so there is nothing to block.
+    eq(run(a, 'FTReview.commitBlockedReason()'), null,
+       'a decisions-only commit is still allowed: it does not write family.js');
+
+    // Add an edit and publishing becomes a resurrection, so it must refuse.
+    run(a, `FTChangeLog.record({op:'rename', target:'p3', describe:'~ e'});`);
+    const blocked = run(a, 'FTReview.commitBlockedReason()');
+    ok(blocked && blocked.extra.length === 1, 'with an edit pending it refuses');
+    eq(blocked.extraNames, ['شبح'], 'naming who would be resurrected');
+    eq(invariants(a), [], 'invariants hold');
+  });
+
+  describe('a genuine unpublished addition is not mistaken for a leftover', () => {
+    // The whole point of the `added` set: an addition WITH a changelog entry is real
+    // work, and blocking it would make the guard useless.
+    const a = boot({ role: 'admin' });
+    const id = run(a, `(function(){
+      var i = state.generateId();
+      state.people[i] = {id:i, name:'مولود', gender:'male', generation:1};
+      state.partnerships.push({id:state.generatePPId(), partners:['p2', null], children:[i]});
+      invalidateChildIndex(); invalidateParentIndex();
+      FTChangeLog.record({op:'add_child', target:'p2', id:i, name:'مولود', describe:'+ مولود'});
+      return i;
+    })()`);
+    ok(run(a, '!!state.people[' + JSON.stringify(id) + ']'), 'the new person is in the tree');
+    eq(run(a, 'FTChangeLog.draftDivergence().extra'), [],
+       'and is NOT flagged, because the changelog accounts for them');
+    eq(run(a, 'FTReview.commitBlockedReason()'), null, 'so publishing is allowed');
+    eq(invariants(a), [], 'invariants hold');
+  });
+
   describe('crafted proposals cannot break the domain rules', () => {
     const cases = [
       ['add_father to someone who already has one',

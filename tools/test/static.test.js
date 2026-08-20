@@ -333,14 +333,14 @@ module.exports = function ({ describe, ok, eq }) {
     // early, so the only way to clear a draft hiding committed people was DevTools.
     const pub = read('assets/js/admin/publish.js');
 
-    ok(/const blockedByStaleDraft = n > 0 && hidden\.missing\.length > 0/.test(pub),
-       'COMMIT computes whether the guard would refuse');
+    ok(/const blockedByStaleDraft = n > 0 && \(hidden\.missing\.length > 0 \|\| hidden\.extra\.length > 0\)/.test(pub),
+       'COMMIT computes whether the guard would refuse, in BOTH directions');
     ok(/commitBtn\.disabled = connected && \(\(n === 0 && d === 0\) \|\| blockedByStaleDraft \|\| saveFailed\)/.test(pub),
        'and is disabled in that case, not left live — including a failed draft write');
     ok(/Press DISCARD EDITS/.test(pub), 'its title says what to do instead');
 
     // Only an edit writes family.js, so a decisions-only commit must stay live.
-    ok(/n > 0 && hidden\.missing\.length > 0/.test(pub),
+    ok(/const blockedByStaleDraft = n > 0 &&/.test(pub),
        'the block is gated on edits, so decisions-only stays committable');
 
     ok(/discardBtn\.disabled = n === 0 && hidden\.missing\.length === 0/.test(pub),

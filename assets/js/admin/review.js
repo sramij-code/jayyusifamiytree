@@ -285,7 +285,10 @@ var FTReview = window.FTReview = (function () {
       if (typeof FTChangeLog === 'undefined') return null;
       if (FTChangeLog.count() === 0) return null;
       const h = FTChangeLog.draftDivergence();
-      return h.missing.length ? h : null;
+      // Either direction makes publishing wrong: a missing person would be DELETED,
+      // an unaccounted extra would be RESURRECTED. Both silently, with no changelog
+      // line describing it.
+      return (h.missing.length || h.extra.length) ? h : null;
     },
 
     // Everything COMMIT would publish, as one string for the indicator's tooltip.

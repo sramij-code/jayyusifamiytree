@@ -77,6 +77,17 @@ function markFamilyDirty() {
         : 'Another tab wrote the same draft. This tab\'s view may be stale, and the ' +
           'changelog can end up describing an edit the tree does not contain. Reload ' +
           'this tab, or close the other one.';
+    } else if (hidden.extra.length && !hidden.missing.length) {
+      // A leftover from a draft older than a committed deletion. Publishing would put
+      // them back, so it reads as an addition nobody asked for.
+      el.textContent = '▲ ' + hidden.extra.length + ' STALE EXTRA IN DRAFT' +
+                       (bits.length ? ' · ' + bits.join(' + ') + ' UNPUBLISHED' : '');
+      el.className = 'dirty';
+      el.title = 'This browser\'s draft still contains ' + hidden.extra.length +
+        ' person(s) that are NOT in data/family.js: ' + hidden.extraNames.join(', ') +
+        '. They were most likely removed by a commit made elsewhere. Publishing would ' +
+        'add them back with no changelog line. Press DISCARD EDITS, then reload.' +
+        (bits.length ? '\n\n' + FTReview.unpublishedManifest() : '');
     } else if (hidden.missing.length) {
       el.textContent = '▲ ' + hidden.missing.length + ' HIDDEN BY STALE DRAFT' +
                        (bits.length ? ' · ' + bits.join(' + ') + ' UNPUBLISHED' : '');
@@ -118,7 +129,9 @@ function markFamilyDirty() {
     // as broken at exactly the moment the user is least sure what is happening.
     // Mirrors the guard's condition — only an edit writes family.js, so a
     // decisions-only commit stays available.
-    const blockedByStaleDraft = n > 0 && hidden.missing.length > 0;
+    // Either direction is wrong to publish: a missing person would be DELETED, an
+    // unaccounted extra would be RESURRECTED — both with no changelog line.
+    const blockedByStaleDraft = n > 0 && (hidden.missing.length > 0 || hidden.extra.length > 0);
     // A failed localStorage write means the tree holds a mutation the changelog has
     // no line for: familyFileBody() serialises live state regardless, so publishing
     // would commit a person with nothing in changes.jsonl describing them. Only the
@@ -135,7 +148,7 @@ function markFamilyDirty() {
   // refuses on a stale draft — so it must not look live either.
   const exportBtn = document.getElementById('btn-publish-family');
   if (exportBtn) {
-    exportBtn.disabled = hidden.missing.length > 0;
+    exportBtn.disabled = hidden.missing.length > 0 || hidden.extra.length > 0;
     exportBtn.title = hidden.missing.length > 0
       ? 'Blocked: the draft hides ' + hidden.missing.length + ' person(s) in data/family.js (' +
         hidden.names.join(', ') + '). This export would delete them.'

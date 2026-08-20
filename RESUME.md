@@ -92,6 +92,19 @@ documented.
 - the stale-data banner appears only after the **next publish** creates
   `data/published.json`
 
+## 4b. Check freshness BEFORE assuming staleness
+
+Three rounds were spent chasing a cached file when the data was fine. One line settles
+it, and it should be the first thing run for any "I cannot see X" report:
+
+```js
+console.log(location.href, familyData.publishedAt, !!familyData.people['<id>']);
+FTProposalStatus.checkFreshness().then(r => console.log(r));
+```
+
+`fresh` + the id present means it is a VISIBILITY question, not a data one. Also check
+which page: `admin` and `index.html` keep separate drafts and I chased the wrong one.
+
 ## 5. Traps that cost time today — do not relearn these
 
 - **A hard reload cannot be detected.** `PerformanceNavigationTiming.type` is

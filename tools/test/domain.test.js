@@ -210,6 +210,71 @@ module.exports = function ({ describe, ok, eq }) {
     eq(run(c, 'state.visibleNodes.size'), before, 'a refused call changes nothing');
   });
 
+  describe('a wife can be reached from a collapsed tree', () => {
+    // ensureNodeVisible is the path a search hit and a proposal preview both use. Its
+    // partner branch only expanded the husband if he was ALREADY visible, and never
+    // recursed to make him visible — unlike the child branch, which does. So on a
+    // collapsed tree nothing happened, and the trailing visibleNodes.add() that papered
+    // over it does not survive recomputeVisibleNodes(), which rebuilds from
+    // expandedNodes.
+    //
+    // It affected only 2 people when found — both wives added through the app — because
+    // all 1,746 imported people are recorded as male children. It affects every wife
+    // added from here on.
+    const committed = loadFamily();
+    const child = new Set();
+    for (const pp of committed.partnerships) for (const c of pp.children) if (c) child.add(c);
+    const fatherless = Object.keys(committed.people)
+      .filter(id => committed.people[id].gender === 'female' && !child.has(id));
+    ok(fatherless.length > 0, 'the data has at least one wife with no father (' + fatherless.length + ')');
+
+    for (const w of fatherless) {
+      const c = boot({ role: 'admin' });
+      run(c, 'resetView();');
+      ok(!run(c, 'state.visibleNodes.has(' + JSON.stringify(w) + ')'),
+         committed.people[w].name + ' starts hidden on a collapsed tree');
+      run(c, 'ensureNodeVisible(' + JSON.stringify(w) + '); recomputeVisibleNodes();');
+      ok(run(c, 'state.visibleNodes.has(' + JSON.stringify(w) + ')'),
+         committed.people[w].name + ' is revealed');
+      // AND survives the recompute, which is what the old trailing add() did not.
+      ok(run(c, '!!computeLayout()[' + JSON.stringify(w) + ']'),
+         committed.people[w].name + ' gets coordinates, so she actually draws');
+      ok(run(c, 'state.expandedNodes.size') > 1, 'by expanding her husband, not by a hack');
+      eq(invariants(c), [], 'invariants hold');
+    }
+
+    // A man with a father must keep working — that path was never broken.
+    const men = Object.keys(committed.people)
+      .filter(id => committed.people[id].gender === 'male' && child.has(id)).slice(0, 5);
+    for (const m of men) {
+      const c = boot({ role: 'admin' });
+      run(c, 'resetView();');
+      run(c, 'ensureNodeVisible(' + JSON.stringify(m) + '); recomputeVisibleNodes();');
+      ok(run(c, 'state.visibleNodes.has(' + JSON.stringify(m) + ')'), m + ' is still revealed');
+    }
+  });
+
+  describe('revealing a spouse cannot recurse forever', () => {
+    // Revealing her recurses to him, and his partner is her. Without a seen-set that is
+    // an infinite loop, and the fix introduced exactly that shape.
+    const c = boot({ role: 'admin' });
+    const pair = run(c, `(function(){
+      var w = state.generateId();
+      state.people[w] = {id:w, name:'زوجة', gender:'female', generation:5};
+      // A couple with NO ancestry at all, so only the partner branch can apply.
+      var m = state.generateId();
+      state.people[m] = {id:m, name:'زوج', gender:'male', generation:5};
+      state.partnerships.push({id:state.generatePPId(), partners:[m, w], children:[]});
+      invalidateCoupleMap(); invalidateChildIndex(); invalidateParentIndex();
+      return [m, w];
+    })()`);
+    run(c, 'resetView();');
+    // If this recursed forever the test would hang or blow the stack rather than fail.
+    run(c, 'ensureNodeVisible(' + JSON.stringify(pair[1]) + '); recomputeVisibleNodes();');
+    ok(true, 'it terminates');
+    eq(invariants(c), [], 'invariants hold');
+  });
+
   describe('layout places every visible person', () => {
     const c = boot({ role: 'admin' });
     run(c, 'expandAll();');

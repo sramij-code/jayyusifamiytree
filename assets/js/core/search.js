@@ -179,27 +179,55 @@ function navigateToNode(personId) {
   }, 450);
 }
 
-function ensureNodeVisible(personId) {
+// Reveal a person, opening whatever branches are needed to reach them.
+//
+// A WIFE USED TO BE UNREACHABLE. The partner branch only expanded her husband if he
+// was ALREADY visible, and never recursed to make him visible — unlike the child
+// branch, which does. So on a collapsed tree nothing happened, and the trailing
+// `visibleNodes.add()` that papered over it does not survive the next
+// recomputeVisibleNodes(), which rebuilds the set from expandedNodes.
+//
+// Measured: of the two people in the data with no father — both wives added through
+// the app — this revealed neither, while 10 of 10 men with a father worked. It only
+// affects 2 people today because all 1,746 imported people are recorded as male
+// children; it affects EVERY wife added from here on, and this is the path a search
+// hit and a proposal preview both use.
+//
+// Ancestry is tried first: a person's own parents are the better route when they have
+// them. `seen` guards the cycle a spouse pair would otherwise make, since revealing
+// her recurses to him and his partner is her.
+function ensureNodeVisible(personId, _seen) {
   if (state.visibleNodes.has(personId)) return;
+  const seen = _seen || new Set();
+  if (seen.has(personId)) return;
+  seen.add(personId);
 
+  // As someone's child: reveal a parent, then expand them.
   for (const pp of state.partnerships) {
-    if (pp.children.includes(personId)) {
-      const [pA, pB] = pp.partners;
-      if (pA && !state.visibleNodes.has(pA)) ensureNodeVisible(pA);
-      if (pB && !state.visibleNodes.has(pB)) ensureNodeVisible(pB);
-      if (pA && state.visibleNodes.has(pA)) expandNode(pA, true);
-      else if (pB && state.visibleNodes.has(pB)) expandNode(pB, true);
-      break;
-    }
-
+    if (!pp.children.includes(personId)) continue;
     const [pA, pB] = pp.partners;
-    if (pA === personId || pB === personId) {
-      const other = pA === personId ? pB : pA;
-      if (other && state.visibleNodes.has(other)) expandNode(other, true);
+    if (pA && !state.visibleNodes.has(pA)) ensureNodeVisible(pA, seen);
+    if (pB && !state.visibleNodes.has(pB)) ensureNodeVisible(pB, seen);
+    if (pA && state.visibleNodes.has(pA)) expandNode(pA, true);
+    else if (pB && state.visibleNodes.has(pB)) expandNode(pB, true);
+    return;
+  }
+
+  // As someone's spouse: reveal the SPOUSE first, then expand them. This recursion is
+  // the fix; without it a wife on a collapsed tree could never be reached.
+  for (const pp of state.partnerships) {
+    const [pA, pB] = pp.partners;
+    if (pA !== personId && pB !== personId) continue;
+    const other = pA === personId ? pB : pA;
+    if (!other) continue;
+    if (!state.visibleNodes.has(other)) ensureNodeVisible(other, seen);
+    if (state.visibleNodes.has(other)) {
+      expandNode(other, true);
+      return;
     }
   }
 
-  if (!state.visibleNodes.has(personId)) {
-    state.visibleNodes.add(personId);
-  }
+  // Last resort, for someone with no relatives at all. Kept, but note it does not
+  // survive recomputeVisibleNodes — which is exactly why it was not a fix above.
+  state.visibleNodes.add(personId);
 }

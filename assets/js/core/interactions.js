@@ -86,6 +86,34 @@ function expandAll() {
   render(true);
 }
 
+// Show every branch, then frame the whole thing.
+//
+// Distinct from expandAll(), which expands but leaves the viewport wherever it was —
+// so on a 1,700-person tree you end up zoomed into an arbitrary corner with no idea
+// anything happened.
+//
+// This exists because the per-user home view is a genuine trap: resetView() collapses
+// to homeNodeId() and expands one level, so once someone picks a name deep in the
+// tree, ⌂ takes them to a small subtree and there was no control that went the other
+// way. The only route back was clearing localStorage.
+//
+// render(false) deliberately: animating ~1,700 node groups is visibly worse than a
+// single hard repaint, and the fit that follows is what orients the user.
+function showFullTree() {
+  state.selectedNodeId = null;
+  state.highlightedNodeId = null;
+  state.selectedPathIds = new Set();
+  hideNodePanel();
+
+  for (const id of Object.keys(state.people)) {
+    state.expandedNodes.add(id);
+    state.visibleNodes.add(id);
+  }
+  render(false);
+  // After the layout exists, or there are no coordinates to frame.
+  setTimeout(() => fitToNodes([...state.visibleNodes], false), 50);
+}
+
 function collapseAll() {
   state.expandedNodes.clear();
   state.expandedNodes.add(state.loggedInUser);

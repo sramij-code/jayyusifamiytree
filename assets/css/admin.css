@@ -473,7 +473,7 @@ body:not(.admin-mode) #app { padding-top: 0; }
 
   /* #app's padding already moves the canvas down, so the reset button only
      needs the safe-area inset when the bar is absent. */
-  body.admin-mode #btn-reset-view { top: 12px; }
+  body.admin-mode #canvas-controls { top: 12px; }
 
   #btn-add-relative { flex: 1 1 auto; }
 

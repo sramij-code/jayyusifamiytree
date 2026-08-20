@@ -355,6 +355,42 @@ function renderMineList() {
   list.textContent = '';
 
   const rows = FTPropose.lastMine();
+
+  // Clearing is offered only for DECIDED proposals, and only ever hides them from
+  // this device: the row stays in the inbox and in git, because the table has no
+  // delete policy. The label says "hide", not "delete", for that reason.
+  const settled = rows.filter(r => r._state === 'approved' || r._state === 'rejected').length;
+  const hidden = FTPropose.dismissed().length;
+  if (settled > 0 || hidden > 0) {
+    const bar = document.createElement('div');
+    bar.className = 'mine-tools';
+    if (settled > 0) {
+      const b = document.createElement('button');
+      b.className = 'mine-btn ghost';
+      b.textContent = 'إخفاء المنتهية (' + settled + ')';
+      b.title = 'Hide the ' + settled + ' proposal(s) already decided. They stay in the ' +
+                'reviewer\'s records — this only clears your own list on this device.';
+      b.addEventListener('click', () => {
+        const n = FTPropose.dismissSettled();
+        renderMineList();
+        markProposeState();
+        mineStatus(n ? 'أُخفيت ' + n + ' من قائمتك' : 'لم يُخفَ شيء', n ? 'ok' : 'err');
+      });
+      bar.appendChild(b);
+    }
+    if (hidden > 0) {
+      const r = document.createElement('button');
+      r.className = 'mine-btn ghost';
+      r.textContent = 'إظهار المخفية (' + hidden + ')';
+      r.addEventListener('click', () => {
+        FTPropose.restoreDismissed();
+        refreshMine();
+      });
+      bar.appendChild(r);
+    }
+    list.appendChild(bar);
+  }
+
   if (rows.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'mine-empty';

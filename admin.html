@@ -91,9 +91,20 @@
         <!-- Floats on the canvas rather than living in #sidebar-actions,
              because on mobile the sidebar is a collapsed sheet and anything
              inside it needs two taps to reach. -->
-        <button id="btn-reset-view" title="العودة إلى العرض الأولي · reset to the opening view">
-          <span id="reset-glyph">⌂</span><span id="reset-label">العرض الأولي</span>
-        </button>
+        <!-- Positioned as a PAIR: the offsets for this control are overridden in
+             three stylesheets (mobile circle, propose bar, admin bar), so the
+             wrapper carries the position and the buttons are plain flex children.
+             Duplicating four sets of offsets per button would rot immediately. -->
+        <div id="canvas-controls">
+          <button id="btn-reset-view" class="canvas-btn"
+                  title="العودة إلى العرض الأولي · reset to your opening view">
+            <span id="reset-glyph" class="canvas-glyph">⌂</span><span id="reset-label" class="canvas-label">العرض الأولي</span>
+          </button>
+          <button id="btn-full-tree" class="canvas-btn"
+                  title="إظهار الشجرة كاملة · expand every branch. 1,700+ nodes, so it can take a moment">
+            <span id="full-glyph" class="canvas-glyph">⤢</span><span id="full-label" class="canvas-label">الشجرة كاملة</span>
+          </button>
+        </div>
 
         <div class="canvas-hint">Scroll to zoom · Drag to pan · Click to expand · ⌘-click for whole branch<br>⌘↓ expand one level · ⌘↑ collapse branch</div>
       </div>

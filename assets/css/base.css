@@ -673,11 +673,19 @@ html, body {
 /* ---- RESET VIEW BUTTON ----
    Top-left of the canvas: clear of .canvas-hint (bottom-right), the node panel
    (bottom-centre) and admin's pickers (right edge and bottom-centre). */
-#btn-reset-view {
+/* The wrapper owns the POSITION; the buttons own their looks. Three other rules
+   override these offsets (mobile, propose bar, admin bar) and they now move the
+   pair rather than one button. */
+#canvas-controls {
       position: absolute;
       top: 16px;
       left: 16px;
       z-index: 6;
+      display: flex;
+      gap: 8px;
+    }
+
+.canvas-btn {
       display: flex;
       align-items: center;
       gap: 7px;
@@ -694,14 +702,14 @@ html, body {
       direction: rtl;
     }
 
-#btn-reset-view:hover {
+.canvas-btn:hover {
       background: var(--node-bg);
       transform: translateY(-1px);
     }
 
-#btn-reset-view:active { transform: translateY(0); }
+.canvas-btn:active { transform: translateY(0); }
 
-#reset-glyph {
+.canvas-glyph {
       font-family: var(--mono);
       font-size: 15px;
       line-height: 1;
@@ -824,17 +832,19 @@ html, body {
 
   /* Reset stays reachable, but as a 44px circular glyph — the label costs
      width that a 375px canvas does not have. */
-  #btn-reset-view {
+  #canvas-controls {
     top: calc(12px + env(safe-area-inset-top));
     left: 12px;
+  }
+  .canvas-btn {
     width: 44px;
     height: 44px;
     padding: 0;
     justify-content: center;
     border-radius: 50%;
   }
-  #reset-label { display: none; }
-  #reset-glyph { font-size: 19px; }
+  .canvas-label { display: none; }
+  .canvas-glyph { font-size: 19px; }
 
   /* The panel's base z-index (100) is below the sheet's (150), so an open
      sheet would bury its buttons — including admin's add-relative. Rather

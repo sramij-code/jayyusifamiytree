@@ -20,6 +20,14 @@
 var FTPropose = window.FTPropose = (function () {
   const MODE_KEY = 'ftProposeMode';
   const SENT_KEY = 'ftProposalsSent';   // ids we posted, so we can report status
+  // Ids this visitor has chosen to hide from their OWN list.
+  //
+  // A separate key from SENT_KEY because clearing the sent list alone would not hide
+  // anything: mine() is the union of that list AND an author_node query, so a row
+  // matching the query comes straight back. And the row itself can never be removed —
+  // the table has no delete policy — so "clear" can only ever mean "hide from my view
+  // on this device". Named to say exactly that.
+  const DISMISS_KEY = 'ftProposalsDismissed';
 
   // Cached answer for the bar, which renders synchronously. `mineState` starts at
   // 'unknown' on purpose: before a fetch we know something was sent but not
@@ -115,7 +123,36 @@ var FTPropose = window.FTPropose = (function () {
 
     // ---- sent proposals --------------------------------------------------
 
-    sent: function () { return read(SENT_KEY, []); },
+    sent: function () {
+      // Excludes dismissed ids, so the bar stops counting proposals the visitor has
+      // finished with — otherwise "… 4 اقتراحات مُرسلة" would persist after clearing.
+      const hidden = new Set(this.dismissed());
+      return read(SENT_KEY, []).filter(x => x && !hidden.has(x.id));
+    },
+
+    dismissed: function () { return read(DISMISS_KEY, []); },
+
+    // Hide every proposal that has been DECIDED. Pending ones are deliberately left:
+    // hiding something still awaiting review would tell the visitor it is finished
+    // when the reviewer still has it, and they have no way to take it back.
+    //
+    // Local and reversible. It removes nothing from the inbox and nothing from git.
+    dismissSettled: function () {
+      const settled = lastMine.filter(r => r._state === 'approved' || r._state === 'rejected');
+      if (!settled.length) return 0;
+      const now = new Set(this.dismissed());
+      for (const r of settled) now.add(r.id);
+      if (!write(DISMISS_KEY, Array.from(now))) return 0;
+      lastMine = lastMine.filter(r => !now.has(r.id));
+      return settled.length;
+    },
+
+    restoreDismissed: function () {
+      // Local-only hiding with no way back is a trap, so there is a way back.
+      write(DISMISS_KEY, []);
+      mineState = 'unknown';
+      return true;
+    },
 
     // ---- my proposals, and where they stand -----------------------------
     //
@@ -177,8 +214,9 @@ var FTPropose = window.FTPropose = (function () {
       const withdrawn = new Set();
       for (const r of all) if (r && r.withdraws) withdrawn.add(r.withdraws);
 
+      const hidden = new Set(this.dismissed());
       const out = all
-        .filter(r => r && !r.withdraws)
+        .filter(r => r && !r.withdraws && !hidden.has(r.id))
         .map(r => Object.assign({}, r, {
           _state: FTProposalStatus.stateOf(r.id, app.ids, decMap),
           _withdrawn: withdrawn.has(r.id),

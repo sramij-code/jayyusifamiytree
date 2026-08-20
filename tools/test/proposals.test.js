@@ -1493,6 +1493,74 @@ module.exports = function ({ describe, ok, eq }) {
     eq(invariants(a), [], 'invariants hold');
   });
 
+  describe('a proposer can clear finished proposals from their own list', () => {
+    // "Clear" can only mean HIDE ON THIS DEVICE. The row cannot be deleted — the
+    // table has no delete policy — and clearing the local sent list alone would not
+    // even hide it, because mine() is the union of that list AND an author_node
+    // query, so the row comes straight back.
+    const MINE = 'p143';
+    const rows = [
+      { id: 'ap', created_at: '2026-08-20T03:00:00Z', author_node: MINE, author_name: 'ر', note: null,
+        ops: [{ op: 'add_wife', target: 'p2', id: 'pap', name: 'ا', describe: '+ ا' }] },
+      { id: 'rj', created_at: '2026-08-20T02:00:00Z', author_node: MINE, author_name: 'ر', note: null,
+        ops: [{ op: 'add_wife', target: 'p3', id: 'prj', name: 'ب', describe: '+ ب' }] },
+      { id: 'pd', created_at: '2026-08-20T01:00:00Z', author_node: MINE, author_name: 'ر', note: null,
+        ops: [{ op: 'add_wife', target: 'p4', id: 'ppd', name: 'ج', describe: '+ ج' }] },
+    ];
+    const net = async (url) => {
+      const u = String(url);
+      if (u.indexOf('changes.jsonl') !== -1) {
+        return { ok: true, status: 200, text: async () =>
+          JSON.stringify({ op: 'add_wife', describe: '+ ا', fromProposal: 'ap' }) + '\n' };
+      }
+      if (u.indexOf('proposals-reviewed.json') !== -1) {
+        return { ok: true, status: 200, text: async () => JSON.stringify({ version: 1, decisions: [
+          { id: 'rj', decision: 'rejected', at: '2026-08-20T02:30:00Z', note: null }] }) };
+      }
+      return { ok: true, status: 200, json: async () => rows };
+    };
+    const store = { ftProposeMode: 'true', ftHomeNode: MINE };
+    const v = boot({ store, role: 'propose', net });
+
+    return run(v, 'FTPropose.mine()').then(() => {
+      eq(run(v, 'FTPropose.lastMine().map(function(r){return r.id+":"+r._state;})').sort(),
+         ['ap:approved', 'pd:pending', 'rj:rejected'], 'one of each state');
+
+      const n = run(v, 'FTPropose.dismissSettled()');
+      eq(n, 2, 'both decided proposals are hidden');
+      eq(run(v, 'FTPropose.lastMine().map(function(r){return r.id;})'), ['pd'],
+         'and only the PENDING one remains — hiding that would mislead them, since the ' +
+         'reviewer still has it and they cannot take it back');
+      eq(run(v, 'FTPropose.dismissed().length'), 2, 'the dismissal is recorded');
+      eq(run(v, 'FTPropose.dismissed().sort()'), ['ap', 'rj'], 'naming exactly the decided two');
+      ok('ftProposalsDismissed' in store, 'persisted under its own key');
+
+      // The bar must stop counting them, or "… N مُرسلة" survives the clear.
+      run(v, `FTPropose.rememberSent({id:'ap', created_at:'x', ops:[]});`);
+      eq(run(v, "FTPropose.sent().filter(function(x){return x.id==='ap';}).length"), 0,
+         'sent() excludes dismissed ids, so the bar count drops too');
+
+      // A refetch must not bring them back.
+      return run(v, 'FTPropose.mine()').then(() => {
+        eq(run(v, 'FTPropose.lastMine().map(function(r){return r.id;})'), ['pd'],
+           'and a refresh does not resurrect them, even though the query still returns them');
+
+        // Reversible: local-only hiding with no way back is a trap.
+        run(v, 'FTPropose.restoreDismissed();');
+        return run(v, 'FTPropose.mine()').then(() => {
+          eq(run(v, 'FTPropose.lastMine().length'), 3, 'restoring brings all three back');
+        });
+      });
+    });
+  });
+
+  describe('clearing hides nothing when there is nothing decided', () => {
+    // Guard against a button that reports success while doing nothing.
+    const v = boot({ store: { ftProposeMode: 'true', ftHomeNode: 'p143' }, role: 'propose' });
+    eq(run(v, 'FTPropose.dismissSettled()'), 0, 'nothing to hide with an empty list');
+    eq(run(v, 'FTPropose.dismissed()'), [], 'and nothing is recorded');
+  });
+
   describe('crafted proposals cannot break the domain rules', () => {
     const cases = [
       ['add_father to someone who already has one',

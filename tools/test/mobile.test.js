@@ -255,7 +255,10 @@ module.exports = function ({ describe, ok, eq }) {
       ['assets/css/base.css', '.panel-btn'],
       ['assets/css/base.css', '#btn-close-panel'],
       ['assets/css/base.css', '.search-result-item'],
-      ['assets/css/base.css', '#btn-reset-view'],
+      // .canvas-btn, not #btn-reset-view: the mobile rule targets the class now, so
+      // this covers BOTH canvas buttons instead of one. It was silently SKIPPING
+      // after the rename.
+      ['assets/css/base.css', '.canvas-btn'],
       ['assets/css/propose.css', '.who-row'],
       ['assets/css/admin.css', '.pub-btn'],
       ['assets/css/admin.css', '.review-btn'],

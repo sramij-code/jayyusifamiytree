@@ -978,3 +978,16 @@ body.resizing #tree-svg { pointer-events: none; }
       border-color: #7f1d1d !important;
       font-weight: 700;
     }
+
+/* A person who exists ONLY in this browser — added or edited locally and not yet
+   published. In base.css, not admin.css, because the proposer needs this more than
+   the owner does: their whole suggestion is local until it is approved.
+
+   Dashed rather than dimmed. Dimming already means "collapsed" in this tree, and the
+   distinction being drawn is provenance, not activity. */
+.node-local .node-rect {
+  stroke: var(--accent-deep);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 3;
+}
+.node-local .node-sub-text { font-style: italic; }

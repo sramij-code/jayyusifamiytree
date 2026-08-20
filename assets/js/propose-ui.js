@@ -10,6 +10,32 @@
 // Status line
 // ---------------------------------------------------------------------------
 
+// Throw away this browser's local copy. Two clicks rather than window.confirm(),
+// which Safari can suppress silently — a suppressed confirm returns false, so the
+// button would look dead.
+let _proposeDiscardArmed = false;
+
+function discardMyCopy() {
+  const btn = document.getElementById('btn-propose-discard');
+  if (!_proposeDiscardArmed) {
+    _proposeDiscardArmed = true;
+    if (btn) {
+      const n = FTChangeLog.count();
+      btn.textContent = n > 0 ? 'تأكيد: فقدان ' + n + ' ↺' : 'تأكيد: إعادة التحميل ↺';
+      btn.classList.add('danger');
+    }
+    setTimeout(() => {
+      _proposeDiscardArmed = false;
+      if (btn) { btn.textContent = 'تجاهل نسختي'; btn.classList.remove('danger'); }
+    }, 4000);
+    return;
+  }
+  FTChangeLog.discardLocal();
+  // Reload rather than unpicking the mutations: window.FT_FAMILY is untouched, so a
+  // fresh boot is the published tree exactly.
+  location.reload();
+}
+
 function markProposeState() {
   const bar = document.getElementById('propose-bar');
   if (!bar) return;
@@ -96,6 +122,22 @@ function markProposeState() {
 
   const undo = document.getElementById('btn-propose-undo');
   if (undo) undo.disabled = !FTChangeLog.canUndo();
+
+  // Offered whenever a local copy exists, in or out of propose mode.
+  const discard = document.getElementById('btn-propose-discard');
+  if (discard) {
+    discard.hidden = !FTChangeLog.hasDraft() && FTChangeLog.count() === 0;
+    discard.title = 'تجاهل نسختك المحلية وأعد التحميل من البيانات المنشورة · ' +
+                    FTChangeLog.storageSummary();
+  }
+
+  // Name the source of truth. Two pages keep two independent stores and nothing said
+  // which one you were looking at. Appended to the identity chip's existing title,
+  // which is already the thing a confused visitor hovers.
+  const whoChip = document.getElementById('propose-who');
+  if (whoChip) {
+    whoChip.title = (whoChip.title || '').split('\n')[0] + '\n' + FTChangeLog.storageSummary();
+  }
 }
 
 // ---------------------------------------------------------------------------

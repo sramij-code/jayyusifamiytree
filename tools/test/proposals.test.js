@@ -1561,6 +1561,83 @@ module.exports = function ({ describe, ok, eq }) {
     eq(run(v, 'FTPropose.dismissed()'), [], 'and nothing is recorded');
   });
 
+  describe('escape hatches: ?fresh=1 and a viewer DISCARD', () => {
+    // A HARD RELOAD CANNOT BE DETECTED — PerformanceNavigationTiming.type is 'reload'
+    // for Cmd+R and Option+Cmd+R alike — so clearing on reload would mean clearing on
+    // EVERY reload, deleting a relative's work the first time they pressed Cmd+R.
+    // These are the explicit substitutes, and the URL one is sendable.
+    const committed = loadFamily();
+    const store = {
+      'ftFamilyDraft:propose': JSON.stringify({
+        people: committed.people, partnerships: committed.partnerships,
+        savedAt: '2026-08-18T21:04:00.000Z' }),
+      'ftChangeLog:propose': JSON.stringify([{ op: 'rename', target: 'p3', describe: '~ mine' }]),
+      ftProposeMode: 'true',
+    };
+    const v = boot({ store, role: 'propose' });
+    ok(run(v, 'FTChangeLog.hasDraft()'), 'there is a local copy to begin with');
+    eq(run(v, 'FTChangeLog.count()'), 1, 'and an unsent edit');
+
+    // Apply it first, so a draftReport actually EXISTS to be cleared — otherwise the
+    // assertion below passes trivially, which is how it passed a mutation that left
+    // the stale report in place.
+    run(v, 'FTChangeLog.applyDraft();');
+    ok(run(v, 'FTChangeLog.draftReport()') !== null, 'applying the draft records a report');
+
+    run(v, 'FTChangeLog.discardLocal();');
+    ok(!run(v, 'FTChangeLog.hasDraft()'), 'discardLocal clears the draft');
+    eq(run(v, 'FTChangeLog.count()'), 0, 'and the log');
+    eq(run(v, 'FTChangeLog.draftReport()'), null, 'and the report, so nothing stale lingers');
+    eq(run(v, 'FTChangeLog.saveFailed()'), false, 'and any failed-write flag');
+    ok(!('ftFamilyDraft:propose' in store) || store['ftFamilyDraft:propose'] === undefined,
+       'the key is actually gone from storage');
+  });
+
+  describe('the UI names which store it is reading', () => {
+    // Two pages keep two independent stores and nothing on screen said which. An owner
+    // and I both read the wrong key for several minutes over a person who was not
+    // there. This is the line that would have ended it.
+    const committed = loadFamily();
+    for (const [role, key] of [['propose', 'ftFamilyDraft:propose'], ['admin', 'ftFamilyDraft:admin']]) {
+      const store = { ['ftFamilyDraft:' + role]: JSON.stringify({
+        people: committed.people, partnerships: committed.partnerships,
+        savedAt: '2026-08-18T21:04:00.000Z' }) };
+      if (role === 'propose') store.ftProposeMode = 'true';
+      const c = boot({ store, role });
+      const info = run(c, 'FTChangeLog.storageInfo()');
+      eq(info.role, role, role + ': the role is reported');
+      eq(info.draftKey, key, role + ': and the exact key in use');
+      eq(info.savedAt, '2026-08-18T21:04:00.000Z', role + ': and when it was written');
+      const sum = run(c, 'FTChangeLog.storageSummary()');
+      ok(sum.indexOf(key) !== -1, role + ': the summary names the key', sum);
+      ok(/2026-08-18 21:04/.test(sum), role + ': and the date, readably', sum);
+      ok(/published data/.test(sum), role + ': and the published stamp', sum);
+    }
+    // No local copy must read as such rather than as an empty date.
+    const clean = boot({ role: 'admin' });
+    ok(/no local copy/.test(run(clean, 'FTChangeLog.storageSummary()')),
+       'with no draft it says so plainly', run(clean, 'FTChangeLog.storageSummary()'));
+  });
+
+  describe('a person who exists only locally is marked as local', () => {
+    // Draft-only people were pixel-identical to published ones, which is what turned
+    // five freshness questions into five bug reports.
+    const a = boot({ role: 'admin' });
+    const id = run(a, `(function(){
+      var i = state.generateId();
+      state.people[i] = {id:i, name:'محلي', gender:'male', generation:1};
+      state.partnerships.push({id:state.generatePPId(), partners:['p2', null], children:[i]});
+      invalidateChildIndex(); invalidateParentIndex();
+      return i;
+    })()`);
+    eq(run(a, 'isLocalOnly(' + JSON.stringify(id) + ')'), true, 'a locally added person is local-only');
+    eq(run(a, 'isLocalOnly("p2")'), false, 'a published person is not');
+    eq(run(a, 'isLocalOnly("pNOPE")'), false, 'and a nonexistent id is not');
+    // The inherited-name hazard, since this reads state.people.
+    eq(run(a, 'isLocalOnly("__proto__")'), false, "and neither is '__proto__'");
+    eq(run(a, 'isLocalOnly("toString")'), false, "nor 'toString'");
+  });
+
   describe('crafted proposals cannot break the domain rules', () => {
     const cases = [
       ['add_father to someone who already has one',

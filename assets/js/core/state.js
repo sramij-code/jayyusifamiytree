@@ -275,6 +275,20 @@ function isValidNewId(id) {
   return typeof id === 'string' && /^p[0-9a-z]+$/i.test(id) && id.length <= 40;
 }
 
+// Is this person only in THIS browser — not in the published data?
+//
+// Item three of the design review. A draft-only person was pixel-identical to a
+// published one, which is what turned five data-freshness questions into five bug
+// reports: nothing on the node said "this is mine and unpublished".
+//
+// A direct comparison against familyData rather than a tracked set, because the set
+// would need invalidating on every mutation and this is one property lookup.
+function isLocalOnly(personId) {
+  if (typeof familyData === 'undefined' || !familyData || !familyData.people) return false;
+  return personExists(personId) &&
+         !Object.prototype.hasOwnProperty.call(familyData.people, personId);
+}
+
 // Rules 2 and 3: women are terminal. Nothing extends from a wife or a daughter.
 function isTerminal(personId) {
   const p = getPerson(personId);

@@ -33,6 +33,7 @@ function initEventListeners() {
   document.getElementById('btn-collapse-all').addEventListener('click', collapseAll);
   document.getElementById('btn-reset-view').addEventListener('click', resetView);
   document.getElementById('btn-full-tree').addEventListener('click', showFullTree);
+  document.getElementById('btn-propose-discard').addEventListener('click', discardMyCopy);
 
   initProposeUI();
   initMineUI();
@@ -45,6 +46,11 @@ function init() {
   // until an approval reaches data/family.js. Before initSVG, so nothing tries
   // to draw yet; the visible set is reseeded directly rather than via
   // resetView, which renders.
+  // ?fresh=1 (or #fresh) throws away this browser's local copy before it can be
+  // applied. The sendable escape hatch — see freshRequested() for why a hard reload
+  // cannot be used for this.
+  if (FTChangeLog.freshRequested()) FTChangeLog.discardLocal();
+
   if (FTChangeLog.hasDraft()) {
     FTChangeLog.applyDraft();
     const home = homeNodeId();

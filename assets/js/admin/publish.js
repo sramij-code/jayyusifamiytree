@@ -305,7 +305,8 @@ function publishFamily() {
     people: state.people,
     partnerships: state.partnerships,
     loggedInUser: state.loggedInUser,
-    root: state.root || 'p1'
+    root: state.root || 'p1',
+    publishedAt: new Date().toISOString(),   // see github.js familyFileBody
   };
   download('family.js',
     'window.FT_FAMILY = ' + JSON.stringify(out, null, 2) + ';\n' +

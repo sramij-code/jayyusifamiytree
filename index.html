@@ -160,6 +160,11 @@
     <span class="propose-only" id="propose-state"></span>
     <button class="propose-only pb-btn" id="btn-propose-undo" disabled>&#8630;</button>
     <button class="propose-only pb-btn" id="btn-propose-send" disabled>إرسال للمراجعة ↑</button>
+    <!-- NOT .propose-only: a stale local copy is exactly the state in which the
+         visitor is not in propose mode and needs a way out. The admin has had this
+         control since the start; the propose side had none, so the only remedy was
+         DevTools. -->
+    <button class="pb-btn" id="btn-propose-discard" hidden>تجاهل نسختي</button>
     <span class="propose-only pb-note">تعديلاتك تظهر لك فقط حتى تُعتمد</span>
     <!-- Deliberately NOT .propose-only: checking where your suggestions stand
          should not require entering edit mode. Shown once anything was sent. -->

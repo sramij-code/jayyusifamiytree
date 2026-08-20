@@ -341,6 +341,67 @@ var FTChangeLog = window.FTChangeLog = (function () {
       } catch (e) { /* no window, or no storage events: nothing to watch */ }
     },
 
+    // ---- escape hatches -------------------------------------------------
+
+    // Has the URL asked for a clean slate?
+    //
+    // A HARD RELOAD CANNOT BE DETECTED. PerformanceNavigationTiming.type returns
+    // 'reload' for Cmd+R and Option+Cmd+R alike, and no API exposes the modifier —
+    // so "clear on hard reload" could only ever mean "clear on ANY reload", which
+    // would delete a relative's twenty minutes of work the first time they pressed
+    // Cmd+R out of habit. Surviving a reload is the entire reason this store exists.
+    //
+    // An explicit URL is the honest substitute, and it is better in one way that
+    // matters: it is SENDABLE. When a relative says the site looks wrong, the owner
+    // replies with a link instead of talking them through DevTools, and it works even
+    // when the UI itself is too confused to offer a button.
+    freshRequested: function () {
+      try {
+        return /(^|[?&])fresh=1(&|$)/.test(location.search) || location.hash === '#fresh';
+      } catch (e) { return false; }
+    },
+
+    // Throw away this role's local state. Used by ?fresh=1 and by the DISCARD
+    // controls on both pages.
+    discardLocal: function () {
+      this.clearDraft();
+      this.clearLog();
+      this._draftReport = null;
+      this._saveFailed = false;
+      return true;
+    },
+
+    // Where the local state lives and when it was written, for display.
+    //
+    // Item two of the review's list, and the highest value per line: two pages keep
+    // two independent stores, and NOTHING on screen named which one you were looking
+    // at. An owner and I both read the wrong key for several minutes over a person
+    // who was not there. A tooltip would have ended it immediately.
+    storageInfo: function () {
+      const d = this.draft();
+      return {
+        role: ROLE,
+        draftKey: DRAFT_KEY,
+        logKey: LOG_KEY,
+        savedAt: d && d.savedAt ? d.savedAt : null,
+        hasDraft: !!d,
+        edits: this.count(),
+        publishedAt: (typeof familyData !== 'undefined' && familyData && familyData.publishedAt) || null,
+      };
+    },
+
+    // A one-line, human summary of the above.
+    storageSummary: function () {
+      const i = this.storageInfo();
+      const bits = ['store: ' + i.draftKey];
+      bits.push(i.hasDraft ? 'saved ' + String(i.savedAt || 'unknown').replace('T', ' ').slice(0, 16)
+                           : 'no local copy');
+      if (i.edits) bits.push(i.edits + ' unsent edit' + (i.edits === 1 ? '' : 's'));
+      bits.push('published data: ' + (i.publishedAt
+        ? String(i.publishedAt).replace('T', ' ').slice(0, 16) : 'unstamped'));
+      return bits.join(' · ');
+    },
+
     // What the last applyDraft() had to do. Null until one runs.
     draftReport: function () { return this._draftReport || null; },
     _draftReport: null,

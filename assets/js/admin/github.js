@@ -242,6 +242,11 @@ var FTGitHub = window.FTGitHub = (function () {
       partnerships: state.partnerships,
       loggedInUser: state.loggedInUser,
       root: state.root || 'p1',
+      // When this data was published, so the UI can say how old a local copy is
+      // relative to it. Note for tools/rebuild_from_excel.py: this field is added at
+      // publish time and will not appear in a rebuild, so a byte-identical comparison
+      // must ignore it.
+      publishedAt: new Date().toISOString(),
     };
     // Byte-for-byte the shape data/family.js already has, so the committed
     // diff is a data diff and not a reformat of the whole file.

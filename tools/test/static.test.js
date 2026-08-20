@@ -403,6 +403,40 @@ module.exports = function ({ describe, ok, eq }) {
     ok(/\.canvas-btn \{/.test(base), 'and the buttons share one look');
   });
 
+  describe('the escape hatches exist and are wired', () => {
+    const cl = codeOnly(read('assets/js/changelog.js'));
+    ok(/freshRequested: function/.test(cl), 'the URL hatch exists');
+    ok(/fresh=1/.test(cl), 'and matches ?fresh=1');
+    ok(/discardLocal: function/.test(cl), 'and a shared discard');
+    ok(/storageSummary: function/.test(cl), 'and a one-line store summary');
+
+    // Honoured BEFORE the draft is applied, or it would clear a copy already in use.
+    for (const f of ['assets/js/viewer.js', 'assets/js/admin/admin.js']) {
+      const src = codeOnly(read(f));
+      const fresh = src.indexOf('freshRequested');
+      const apply = src.indexOf('applyDraft');
+      ok(fresh !== -1, f + ' honours ?fresh=1');
+      ok(fresh < apply, f + ' checks it BEFORE applying the draft');
+    }
+
+    // The viewer's missing control. This was a dead end: admin had DISCARD, the
+    // propose page had nothing, so the only remedy was DevTools.
+    ok(/id="btn-propose-discard"/.test(read('index.html')), 'index.html has a discard control');
+    ok(!/propose-only[^>]*btn-propose-discard|btn-propose-discard[^>]*propose-only/.test(read('index.html')),
+       'and it is NOT .propose-only — a stale copy is exactly when the visitor is not in propose mode');
+    const ui = codeOnly(read('assets/js/propose-ui.js'));
+    ok(/function discardMyCopy/.test(ui), 'propose-ui implements it');
+    ok(/_proposeDiscardArmed/.test(ui), 'with a two-click confirm, not window.confirm');
+    ok(/btn-propose-discard'\)\.addEventListener/.test(codeOnly(read('assets/js/viewer.js'))),
+       'and viewer.js wires it');
+
+    // Provenance must be visible, and styled where BOTH pages get it.
+    ok(/function isLocalOnly/.test(codeOnly(read('assets/js/core/state.js'))),
+       'isLocalOnly exists in core');
+    ok(/\.node-local \.node-rect/.test(read('assets/css/base.css')),
+       'and base.css styles it, not admin.css — the proposer needs it most');
+  });
+
   describe('the resize watcher is debounced and cannot break a boot', () => {
     // A window drag fires resize continuously; re-applying a transform per event
     // fights the drag and thrashes layout. And a view convenience must never stop the
@@ -447,10 +481,15 @@ module.exports = function ({ describe, ok, eq }) {
       at = src.indexOf("let cls = 'node-group';", at + 1);
     }
     ok(builders.length === 2, 'found both class builders (got ' + builders.length + ')');
-    builders.forEach((b, i) => {
-      ok(/markedForRemovalIds/.test(b),
-         'class builder ' + (i + 1) + ' applies node-marked-removal');
-    });
+    // Every provenance/state class, not just the one that prompted this check. Adding
+    // node-local hit the same trap: one builder patched, the other missed, and the
+    // suite passed because it only asserted markedForRemovalIds.
+    for (const marker of ['markedForRemovalIds', 'isLocalOnly', 'selectedPathIds']) {
+      builders.forEach((b, i) => {
+        ok(b.indexOf(marker) !== -1,
+           'class builder ' + (i + 1) + ' applies ' + marker);
+      });
+    }
 
     // And the style has to exist, or the class is inert.
     const css = read('assets/css/admin.css');

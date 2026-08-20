@@ -81,6 +81,11 @@ function init() {
   // before initSVG, so no render is attempted yet — reseed the visible set
   // directly rather than via resetView, which renders and would run before
   // the SVG layers exist.
+  // ?fresh=1 (or #fresh) throws away this browser's local copy before it can be
+  // applied. The sendable escape hatch — see freshRequested() for why a hard reload
+  // cannot be used for this.
+  if (FTChangeLog.freshRequested()) FTChangeLog.discardLocal();
+
   if (FTChangeLog.hasDraft()) {
     FTChangeLog.applyDraft();
     // What reconciliation had to do — the row that pins which published tree this

@@ -107,9 +107,46 @@ function renderReviewList() {
     list.appendChild(reviewEmpty('لا اقتراحات بعد'));
     return;
   }
+  // "لا اقتراحات قيد المراجعة ✓" means nothing needs a DECISION. It does not mean
+  // nothing needs COMMIT, and printing the tick while decisions sat unpublished
+  // made the drawer contradict the publish bar — the reviewer read the tick,
+  // concluded everything was done, and could not see why the bar disagreed.
+  const waiting = FTReview.uncommitted().length;
   if (pending.length === 0) {
-    list.appendChild(reviewEmpty('لا اقتراحات قيد المراجعة ✓'));
+    list.appendChild(reviewEmpty(waiting > 0
+      ? 'لا اقتراحات قيد المراجعة — لكن هناك قرارات لم تُنشر بعد'
+      : 'لا اقتراحات قيد المراجعة ✓'));
   }
+
+  // The decisions themselves, named, at the TOP. They live on history cards, so
+  // without this the only way to find them was to expand the log and scan for
+  // بانتظار COMMIT on individual cards.
+  if (waiting > 0) {
+    const box = document.createElement('div');
+    box.className = 'review-uncommitted';
+
+    const head = document.createElement('div');
+    head.className = 'ru-head';
+    head.textContent = '● ' + waiting + (waiting === 1 ? ' قرار بانتظار COMMIT' : ' قرارات بانتظار COMMIT');
+    box.appendChild(head);
+
+    for (const d of FTReview.uncommittedDetailed()) {
+      const line = document.createElement('div');
+      line.className = 'ru-line';
+      line.textContent = (d.decision === 'rejected' ? '✕ ' : '↺ ') + d.label;
+      box.appendChild(line);
+    }
+
+    const hint = document.createElement('div');
+    hint.className = 'ru-hint';
+    // Say why it is safe, because the other guard blocks COMMIT for tree edits and
+    // the two refusals are easy to confuse.
+    hint.textContent = 'اضغط COMMIT في شريط النشر لحفظها · لا يمسّ هذا ملف العائلة';
+    box.appendChild(hint);
+
+    list.appendChild(box);
+  }
+
   for (const row of pending) list.appendChild(reviewCard(row));
 
   if (all.length === pending.length && !_showHistory) return;

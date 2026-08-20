@@ -226,6 +226,43 @@ module.exports = function ({ describe, ok, eq }) {
        'and does not recompute the count from pending() itself');
   });
 
+  describe('the drawer does not claim done while decisions await COMMIT', () => {
+    // The reported confusion: the drawer printed "لا اقتراحات قيد المراجعة ✓" —
+    // meaning nothing needs a DECISION — directly above a publish bar saying
+    // "2 DECISIONS UNPUBLISHED". The tick read as "all done", and the decisions
+    // themselves were only findable by expanding the log and spotting
+    // بانتظار COMMIT on individual history cards.
+    const ui = read('assets/js/admin/review-ui.js');
+    const css = read('assets/css/admin.css');
+
+    const fn = ui.slice(ui.indexOf('function renderReviewList'),
+                        ui.indexOf('\n}', ui.indexOf('function renderReviewList')));
+    ok(/FTReview\.uncommitted\(\)\.length/.test(fn),
+       'renderReviewList consults uncommitted decisions');
+    ok(/waiting > 0[\s\S]{0,200}لكن هناك قرارات لم تُنشر بعد/.test(fn),
+       'the empty-queue message stops claiming a clean tick when decisions are waiting');
+    // Assert the GUARD, not just the presence of the markup: replacing the
+    // condition with `if (false)` leaves every string in the source, so a plain
+    // grep for the class name cannot tell live code from dead code.
+    ok(/if \(waiting > 0\) \{/.test(fn),
+       'the block is guarded on there actually being uncommitted decisions');
+    ok(/review-uncommitted/.test(fn), 'and a named block lists them');
+    ok(/uncommittedDetailed\(\)/.test(fn),
+       'using the described form, not a bare count');
+    ok(/\.review-uncommitted/.test(css), 'which admin.css styles');
+
+    // The block must appear BEFORE the pending cards, or it is buried again.
+    const posBlock = fn.indexOf('review-uncommitted');
+    const posCards = fn.indexOf('for (const row of pending)');
+    ok(posBlock !== -1 && posCards !== -1 && posBlock < posCards,
+       'and it is rendered above the queue, not below it');
+
+    // It must say committing decisions is safe, since the OTHER guard refuses
+    // COMMIT for tree edits and the two refusals are easy to conflate.
+    ok(/لا يمسّ هذا ملف العائلة/.test(fn),
+       'and notes that a decisions-only commit does not touch family.js');
+  });
+
   describe('the publish bar never offers an action it will refuse', () => {
     // A guard that fires on click, sets the same status text every time and leaves
     // the button live reads as a broken button. And a stale draft with no edits was

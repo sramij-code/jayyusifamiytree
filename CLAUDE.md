@@ -262,6 +262,13 @@ The tree structure has a contested history. Read this before touching any `famil
 
 **Live data is `data/family.js` and nothing else.**
 
+## Session state
+
+`RESUME.md` carries in-flight work and the traps that cost time in the last session —
+the things a fresh session cannot infer from the code. `HANDOFF.md` is the older
+2026-08-15 equivalent. Both are **dev-only and must stay off `release`**, like this
+file.
+
 ## Untracked directories
 
 `designs/`, `designs2/`, `designs3/` are standalone visual-style explorations (glassmorphism,

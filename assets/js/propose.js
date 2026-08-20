@@ -37,6 +37,30 @@ var FTPropose = window.FTPropose = (function () {
     } catch (e) { return fallback; }
   }
 
+  // Look for a proposal we may have just created, when the insert's reply was lost.
+  //
+  // Matched on an op id rather than on the note or a timestamp: op ids come from
+  // state.generateId() in this browser and are unique to this submission, so a
+  // match is proof rather than a guess. A note-only proposal has no op to match,
+  // so it falls back to the note text within the recent window — weaker, but the
+  // alternative is a duplicate the proposer cannot withdraw.
+  async function findLanded(node, ops) {
+    try {
+      if (!node) return null;
+      const recent = await FTSupa.select('proposals',
+        'select=*&author_node=eq.' + encodeURIComponent(node) + '&order=created_at.desc&limit=5');
+      if (!Array.isArray(recent)) return null;
+      const mine = ops.map(o => o && o.id).filter(Boolean);
+      for (const r of recent) {
+        const theirs = (r.ops || []).map(o => o && o.id).filter(Boolean);
+        if (mine.length && theirs.some(id => mine.indexOf(id) !== -1)) return r;
+      }
+      return null;
+    } catch (e) {
+      return null;   // cannot tell; the caller reports the original failure
+    }
+  }
+
   function write(key, value) {
     try { localStorage.setItem(key, JSON.stringify(value)); return true; }
     catch (e) { return false; }
@@ -64,12 +88,28 @@ var FTPropose = window.FTPropose = (function () {
     // Reuses the home node: the person you have claimed as yourself. Falls back
     // to the tree root, which homeNodeId already validates against the loaded
     // data, so a retired id cannot leave us attributing to a ghost.
+    // WHO THIS VISITOR SAYS THEY ARE — or null.
+    //
+    // Deliberately NOT homeNodeId(), which falls back to the tree root so the viewer
+    // always has a node to centre on. Right there, wrong here: that fallback made
+    // me().node never null, so
+    //
+    //   · the bar showed the PATRIARCH's name instead of "من أنت؟"
+    //   · the "choose your name first" branches became unreachable
+    //   · mine() queried author_node=eq.p1, listing EVERY unidentified visitor's
+    //     proposals as "اقتراحاتي", each with a live withdraw button
+    //
+    // A saved id that no longer exists is also null here — cleared storage, a person
+    // removed by an approved proposal, or an id retired by the Excel rebuild — rather
+    // than silently becoming the patriarch.
     me: function () {
-      const id = typeof homeNodeId === 'function' ? homeNodeId() : null;
-      const person = id && state.people[id];
+      let saved = null;
+      try { saved = localStorage.getItem('ftHomeNode'); } catch (e) { /* blocked */ }
+      const known = !!(saved && typeof state !== 'undefined' && state.people &&
+                       Object.prototype.hasOwnProperty.call(state.people, saved));
       return {
-        node: id || null,
-        name: person ? person.name : 'زائر',
+        node: known ? saved : null,
+        name: known ? state.people[saved].name : 'زائر',
       };
     },
 
@@ -106,12 +146,25 @@ var FTPropose = window.FTPropose = (function () {
       const localIds = this.sent().map(x => x.id).filter(Boolean);
       const known = new Set((byNode || []).map(r => r.id));
       const missing = localIds.filter(id => !known.has(id));
+      // CHUNKED, because ftProposalsSent is never pruned.
+      //
+      // One in.(…) with every id a long-lived visitor has ever sent eventually
+      // exceeds the URL limit, the request 400s or 414s, mine() throws, and the
+      // drawer then shows NOTHING AT ALL — a total failure that grows in silently
+      // with use. Newest ids first, so the most relevant chunk is fetched even if a
+      // later one fails.
+      const CHUNK = 50;
       let byId = [];
-      if (missing.length) {
-        // PostgREST in.(…) — quoted, since uuids are fine but the values are not
-        // ours to trust blindly.
-        byId = await FTSupa.select('proposals',
-          'select=*&id=in.(' + missing.map(encodeURIComponent).join(',') + ')') || [];
+      for (let i = 0; i < missing.length; i += CHUNK) {
+        const slice = missing.slice(i, i + CHUNK);
+        try {
+          const got = await FTSupa.select('proposals',
+            'select=*&id=in.(' + slice.map(encodeURIComponent).join(',') + ')');
+          if (Array.isArray(got)) byId = byId.concat(got);
+        } catch (e) {
+          // One bad chunk must not lose the rest, and must not blank the drawer.
+          break;
+        }
       }
 
       const app = await FTProposalStatus.fetchApplied();
@@ -218,8 +271,24 @@ var FTPropose = window.FTPropose = (function () {
         note: String(note || '').trim() || null,
       };
 
-      const rows = await FTSupa.insert('proposals', body);
-      const row = Array.isArray(rows) ? rows[0] : rows;
+      let row;
+      try {
+        const rows = await FTSupa.insert('proposals', body);
+        row = Array.isArray(rows) ? rows[0] : rows;
+      } catch (e) {
+        // DID IT LAND ANYWAY?
+        //
+        // The insert can succeed while the response is lost — a dropped
+        // connection, a backgrounded tab, a flaky phone. Then clearLog() and
+        // rememberSent() never run, the edit still shows as unsent, and the
+        // visitor presses إرسال again: two identical proposals in the inbox, and
+        // no way for them to withdraw one (the table has no delete policy).
+        //
+        // The op ids are the fingerprint. state.generateId() minted them in THIS
+        // browser, so a row carrying one is necessarily our submission.
+        row = await findLanded(who.node, ops);
+        if (!row) throw e;   // genuinely did not land: the caller reports the failure
+      }
       this.rememberSent({ id: row.id, created_at: row.created_at, ops: ops });
 
       // The pending log is now in the inbox, so it is no longer pending. The

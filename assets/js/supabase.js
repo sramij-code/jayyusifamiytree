@@ -40,7 +40,18 @@ var FTSupa = window.FTSupa = (function () {
   }
 
   async function request(path, options) {
-    const res = await fetch(base() + '/rest/v1' + path, options);
+    // A REJECTED fetch is not an HTTP error, and only HTTP errors were handled — so
+    // offline surfaced the browser's raw English ("Load failed" / "Failed to fetch")
+    // inside an Arabic RTL dialog, saying nothing about whether the work was lost. It
+    // never is: the draft and the changelog are local. Both pages route through here,
+    // so one sentence fixes the propose bar and the review drawer together.
+    let res;
+    try {
+      res = await fetch(base() + '/rest/v1' + path, options);
+    } catch (e) {
+      throw new Error('لا يوجد اتصال بالخادم · could not reach the server. ' +
+        'Nothing was lost — your changes are saved in this browser.');
+    }
     if (!res.ok) {
       let detail = '';
       try { detail = (await res.json()).message || ''; } catch (e) { /* not json */ }

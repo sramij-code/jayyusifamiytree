@@ -305,6 +305,13 @@ var FTGitHub = window.FTGitHub = (function () {
       // so a draft hiding committed people turns a publish into a deletion with no
       // changelog entry naming it. Checked here as well as in commitFamily because
       // this is the function that actually moves the ref.
+      // A rejected localStorage write leaves state holding a mutation the changelog
+      // has no entry for, and familyFileBody() serialises state regardless.
+      if (edits > 0 && typeof FTChangeLog.saveFailed === 'function' && FTChangeLog.saveFailed()) {
+        throw new Error('Refusing to publish: this browser could not save the draft, so ' +
+          'the tree may contain an edit with no changelog line. Reload and redo it.');
+      }
+
       if (edits > 0 && typeof FTChangeLog.draftDivergence === 'function') {
         const hidden = FTChangeLog.draftDivergence();
         if (hidden.missing.length > 0) {

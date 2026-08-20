@@ -3,6 +3,8 @@
 ============================================================================ */
 
 function initEventListeners() {
+  // Watch for another tab writing the same draft keys.
+  FTChangeLog.initTabWatch();
   // Publish-bar wiring first. These are the controls that get the work off
   // this device, so they must survive a failure in the tree wiring below —
   // otherwise a bug in the canvas means unpublished edits cannot be saved.

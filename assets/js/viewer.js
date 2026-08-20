@@ -13,6 +13,8 @@
 ============================================================================ */
 
 function initEventListeners() {
+  // Watch for another tab writing the same draft keys.
+  FTChangeLog.initTabWatch();
   document.getElementById('tree-svg').addEventListener('click', () => hideNodePanel());
   document.getElementById('btn-close-panel').addEventListener('click', () => hideNodePanel());
   document.getElementById('btn-expand-subtree').addEventListener('click', () => {

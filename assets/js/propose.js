@@ -20,6 +20,13 @@
 var FTPropose = window.FTPropose = (function () {
   const MODE_KEY = 'ftProposeMode';
   const SENT_KEY = 'ftProposalsSent';   // ids we posted, so we can report status
+  // A free-text identity, for someone who is NOT in the tree — the commonest reason
+  // being that they are proposing to ADD themselves. There is no login, so a chosen
+  // NODE is already only a self-asserted claim; a typed name is the same kind of
+  // claim, just not tied to an existing person. The only thing it forgoes is the
+  // author_node query that lets mine() re-find your proposals on another device —
+  // see me() and the SEND gate. Node identity (ftHomeNode) always wins over this.
+  const MYNAME_KEY = 'ftMyName';
   // Ids this visitor has chosen to hide from their OWN list.
   //
   // A separate key from SENT_KEY because clearing the sent list alone would not hide
@@ -115,10 +122,34 @@ var FTPropose = window.FTPropose = (function () {
       try { saved = localStorage.getItem('ftHomeNode'); } catch (e) { /* blocked */ }
       const known = !!(saved && typeof state !== 'undefined' && state.people &&
                        Object.prototype.hasOwnProperty.call(state.people, saved));
-      return {
-        node: known ? saved : null,
-        name: known ? state.people[saved].name : 'زائر',
-      };
+      if (known) {
+        return { node: saved, name: state.people[saved].name, identified: true };
+      }
+      // No node: a free-text name is still an identity — the person who is not in the
+      // tree. `identified` is what the bar and the SEND gate read, so a typed name
+      // counts exactly as a picked node does, minus the cross-device author_node query.
+      let typed = null;
+      try { typed = localStorage.getItem(MYNAME_KEY); } catch (e) { /* blocked */ }
+      typed = typed && typed.trim();
+      if (typed) return { node: null, name: typed, identified: true };
+      return { node: null, name: 'زائر', identified: false };
+    },
+
+    // Claim a free-text identity (someone not in the tree). Clears any node identity,
+    // since the two are mutually exclusive and node would otherwise win in me().
+    // Empty input clears the identity entirely. Names are trimmed and length-capped —
+    // the same NAME_MAX the reviewer enforces — because this is self-asserted text.
+    setMyName: function (name) {
+      const clean = String(name == null ? '' : name).trim().slice(0, 80);
+      try {
+        if (clean) {
+          localStorage.setItem(MYNAME_KEY, clean);
+          localStorage.removeItem('ftHomeNode');
+        } else {
+          localStorage.removeItem(MYNAME_KEY);
+        }
+        return true;
+      } catch (e) { return false; }
     },
 
     // ---- sent proposals --------------------------------------------------

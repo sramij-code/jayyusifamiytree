@@ -213,6 +213,21 @@ body.propose-mode #propose-toggle {
   transition: background var(--transition), border-color var(--transition);
 }
 .who-row:hover { background: var(--node-bg); border-color: var(--sidebar-border); }
+/* The picked row, before تأكيد commits it. Distinct from :hover so the choice is
+   visible after the pointer moves away. */
+.who-selected,
+.who-selected:hover {
+  background: var(--node-bg);
+  border-color: var(--accent-mid);
+}
+/* Cancel + confirm sit on one row; confirm leads (right, in this RTL modal). */
+#who-actions {
+  display: flex;
+  flex-direction: row-reverse;
+  gap: 8px;
+  margin-top: 4px;
+}
+#who-confirm:disabled { opacity: 0.45; cursor: not-allowed; }
 .who-name {
   font-family: var(--arabic);
   font-size: 15px;

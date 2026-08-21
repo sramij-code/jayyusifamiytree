@@ -41,6 +41,10 @@ function boot(opts) {
     Set, Array, String, Number, Boolean, parseInt, parseFloat, isNaN, RegExp,
     Error, TypeError, Promise, Uint8Array, TextEncoder, TextDecoder, btoa, atob,
     crypto: require('crypto').webcrypto,
+    // No layout engine, so every media query is simply false — the desktop path.
+    // openWhoModal and the resize watcher probe this; without it they throw.
+    matchMedia: () => ({ matches: false, addEventListener() {}, removeEventListener() {},
+                         addListener() {}, removeListener() {} }),
     localStorage: {
       getItem: k => (k in store ? store[k] : null),
       setItem: (k, v) => { store[k] = String(v); },

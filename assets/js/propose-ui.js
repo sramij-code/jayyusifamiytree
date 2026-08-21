@@ -50,10 +50,12 @@ function markProposeState() {
 
   const who = document.getElementById('propose-who');
   if (who) {
-    who.textContent = me.node ? me.name : 'من أنت؟';
+    who.textContent = me.identified ? me.name : 'من أنت؟';
     who.title = me.node
       ? 'Your proposals are sent as ' + me.name + ' (' + me.node + '). Click to change.'
-      : 'Find yourself in the tree so your proposals carry your name.';
+      : me.identified
+        ? 'Your proposals are sent as ' + me.name + ' (not linked to a tree node). Click to change.'
+        : 'Find yourself in the tree — or type your name if you are not in it yet.';
   }
 
   const state_ = document.getElementById('propose-state');
@@ -106,17 +108,16 @@ function markProposeState() {
 
   const send = document.getElementById('btn-propose-send');
   if (send) {
-    // Identity is required, not just an edit.
-    //
-    // me() used to fall back to the tree root, so this could never be blocked. Now
-    // that it is honestly null for an unidentified visitor, an ungated SEND would
-    // POST author_node: null — and mine() can then only ever find that proposal via
-    // this browser's local id list, so clearing storage loses track of it entirely
-    // and the reviewer sees an anonymous row.
+    // Identity is required, not just an edit — but a FREE-TEXT name counts, because
+    // someone proposing to add themselves cannot pick a node they are not in yet.
+    // There is no login, so a picked node is no more verified than a typed name; the
+    // only thing a node adds is the author_node query that lets mine() re-find a
+    // proposal on another device. A free-text proposer keeps only this browser's
+    // local sent-list — an accepted trade, deliberately chosen by the owner.
     const who = FTPropose.me();
-    send.disabled = n === 0 || !who.node;
-    send.title = !who.node && n > 0
-      ? 'اختر اسمك أولاً · pick who you are, so your suggestion carries your name'
+    send.disabled = n === 0 || !who.identified;
+    send.title = !who.identified && n > 0
+      ? 'عرّف نفسك أولاً · say who you are (pick yourself, or type your name) so your suggestion carries it'
       : '';
   }
 
@@ -205,17 +206,90 @@ function initWhoModal() {
   if (!overlay) return;
   overlay.addEventListener('click', (e) => { if (e.target === overlay) closeWhoModal(); });
   document.getElementById('who-cancel').addEventListener('click', closeWhoModal);
+  const confirm = document.getElementById('who-confirm');
+  if (confirm) confirm.addEventListener('click', confirmWho);
 
   const input = document.getElementById('who-search');
-  input.addEventListener('input', () => renderWhoResults(input.value));
-  input.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeWhoModal(); });
+  input.addEventListener('input', () => {
+    // Typing changes intent, so a row selected earlier no longer applies. Confirm
+    // then resolves against the typed text (as a free-text identity) unless a new
+    // row is clicked.
+    whoSelected = null;
+    renderWhoResults(input.value);
+    syncWhoConfirm();
+  });
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { closeWhoModal(); return; }
+    // Enter confirms, so a newcomer can type a name and press Return without hunting
+    // for the button. Guarded on the button being enabled, i.e. there is something
+    // to confirm.
+    if (e.key === 'Enter') {
+      const btn = document.getElementById('who-confirm');
+      if (btn && !btn.disabled) { e.preventDefault(); confirmWho(); }
+    }
+  });
+}
+
+// The result row the visitor picked, if any. A picked row is a NODE identity; no
+// pick plus typed text is a FREE-TEXT identity. Reset every time the modal opens.
+let whoSelected = null;
+
+// Enable confirm when there is anything to commit: a picked person, or typed text.
+function syncWhoConfirm() {
+  const btn = document.getElementById('who-confirm');
+  const input = document.getElementById('who-search');
+  if (!btn || !input) return;
+  btn.disabled = !whoSelected && input.value.trim() === '';
+}
+
+// Commit whatever the visitor has chosen. A picked row wins; otherwise the typed
+// text becomes a free-text identity (the person who is not in the tree yet). As a
+// safety, typed text that is an EXACT, UNIQUE name match resolves to that node
+// instead, so someone who is in fact in the tree does not silently become a
+// node-less identity and lose cross-device recovery.
+function confirmWho() {
+  const input = document.getElementById('who-search');
+  const typed = input ? input.value.trim() : '';
+
+  let node = whoSelected ? whoSelected.id : null;
+  if (!node && typed) {
+    const exact = exactNameMatches(typed);
+    if (exact.length === 1) node = exact[0].id;
+  }
+
+  if (node) {
+    FTPropose.setMyName('');   // node identity wins; drop any stale free-text name
+    setHomeNode(node);
+    closeWhoModal();
+    markProposeState();
+    navigateToNode(node);      // land on yourself, the natural place to start
+    return;
+  }
+  if (typed) {
+    FTPropose.setMyName(typed);
+    closeWhoModal();
+    markProposeState();
+    return;
+  }
+  // Nothing to confirm; leave the modal open (the button should be disabled anyway).
+}
+
+// People whose name matches the query EXACTLY once normalised. Used only to rescue
+// an in-tree person who typed rather than clicked; never to force a choice.
+function exactNameMatches(q) {
+  const norm = s => (typeof normalizeArabic === 'function' ? normalizeArabic(s) : s).toLowerCase().trim();
+  const target = norm(q);
+  if (!target) return [];
+  return Object.values(state.people).filter(p => norm(p.name) === target);
 }
 
 function openWhoModal() {
   const overlay = document.getElementById('who-modal-overlay');
   if (!overlay) return;
+  whoSelected = null;
   document.getElementById('who-search').value = '';
   renderWhoResults('');
+  syncWhoConfirm();
   overlay.classList.add('visible');
   if (!window.matchMedia('(max-width: 640px)').matches) {
     setTimeout(() => document.getElementById('who-search').focus(), 200);
@@ -260,6 +334,7 @@ function renderWhoResults(q) {
   for (const p of hits) {
     const row = document.createElement('button');
     row.className = 'who-row';
+    if (whoSelected && whoSelected.id === p.id) row.classList.add('who-selected');
 
     const name = document.createElement('span');
     name.className = 'who-name';
@@ -274,13 +349,15 @@ function renderWhoResults(q) {
       row.appendChild(anc);
     }
 
+    // SELECT, not commit. The explicit تأكيد button is the single commit point for
+    // both a picked person and a typed-in name, so the two paths behave identically.
+    // Fill the input with the pick so it is visible what تأكيد will use.
     row.addEventListener('click', () => {
-      setHomeNode(p.id);
-      closeWhoModal();
-      markProposeState();
-      // Take them to themselves, which is also the most useful place to start
-      // proposing from.
-      navigateToNode(p.id);
+      whoSelected = { id: p.id, name: p.name };
+      const input = document.getElementById('who-search');
+      if (input) input.value = p.name;
+      renderWhoResults(p.name);   // re-render to show the highlight
+      syncWhoConfirm();
     });
     box.appendChild(row);
   }

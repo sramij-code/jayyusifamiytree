@@ -250,6 +250,30 @@ window still sees old data. Nothing can fix that — the new file is not deploye
 fails on it in either HTML file. Do not add a top-level `familyData` read; a static
 test walks brace depth and fails on any read at module scope.
 
+## 4e. Free-text proposer identity (someone not in the tree)
+
+The "who are you?" modal used to require picking an existing node, which is
+impossible for the commonest reason to propose: adding YOURSELF. It now also accepts
+a typed name. `FTPropose.me()` returns `{ node, name, identified }`:
+node identity (`ftHomeNode`) first, then a free-text name (`ftMyName`), then the
+unidentified `زائر`. `setMyName()` stores the name and clears the node (mutually
+exclusive; node always wins in `me()`).
+
+The modal (`propose-ui.js`) now: result rows SELECT (highlight + fill the box) rather
+than commit; a single explicit **تأكيد** button commits — a picked row → node
+identity, otherwise the typed text → free-text identity (with a safety that an exact,
+unique name match resolves to that node so an in-tree person isn't silently made
+node-less). SEND is gated on `me().identified`, not `me().node`.
+
+Why this was safe to loosen, since a comment in `propose-ui.js` used to argue the
+opposite: there is **no login**, so a picked node was never more verified than a
+typed name — anyone can claim any node. The only thing a node buys is the
+`author_node=eq.<me>` query that lets `mine()` re-find your proposals on another
+device; a free-text proposer keeps only this browser's local sent-list. That is the
+whole, accepted cost. The old hard requirement was an over-correction from the
+patriarch-fallback bug (`me()` returning `p1`), which is a *wrong node*, not a
+*null* one — null never caused that.
+
 ## 5. Traps that cost time today — do not relearn these
 
 - **A hard reload cannot be detected.** `PerformanceNavigationTiming.type` is

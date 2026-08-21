@@ -1296,6 +1296,107 @@ module.exports = function ({ describe, ok, eq }) {
     })();
   });
 
+  describe('a visitor not in the tree can identify by typing a name', () => {
+    // The owner's case: someone proposing to ADD themselves cannot pick a node they
+    // are not in yet. A typed name is a valid identity — there is no login, so a
+    // picked node was only ever a self-asserted claim too. SEND used to be blocked
+    // without a node; it is now allowed for a free-text identity.
+    const a = bootUI({ role: 'propose' });
+    run(a, 'navigateToNode = function(){};');   // the node path renders; not under test here
+
+    eq(run(a, 'FTPropose.me().identified'), false, 'starts unidentified');
+    eq(run(a, 'FTPropose.me().name'), 'زائر', 'and reads as a visitor');
+
+    // Type a name with NO match in the tree, then confirm.
+    run(a, `openWhoModal();
+            document.getElementById('who-search').value = 'شخص جديد ٩٩';
+            document.getElementById('who-search')._handlers.input[0]({});`);
+    eq(run(a, 'document.getElementById("who-confirm").disabled'), false,
+       'typing enables تأكيد');
+    run(a, 'confirmWho();');
+
+    eq(run(a, 'FTPropose.me().identified'), true, 'now identified');
+    eq(run(a, 'FTPropose.me().node'), null, 'with no tree node');
+    eq(run(a, 'FTPropose.me().name'), 'شخص جديد ٩٩', 'carrying the typed name');
+    eq(run(a, 'localStorage.getItem("ftMyName")'), 'شخص جديد ٩٩', 'persisted as ftMyName');
+
+    // SEND becomes available once there is an edit AND an identity — free-text counts.
+    run(a, `var id = state.generateId();
+            state.people[id] = { id: id, name: 'ن', gender: 'male', generation: 2 };
+            FTChangeLog.record({ op: 'add_child', target: 'p2', id: id, name: 'ن', describe: '+ ن' });
+            markProposeState();`);
+    eq(run(a, 'document.getElementById("btn-propose-send").disabled'), false,
+       'SEND is allowed with a free-text identity and a pending edit');
+    // And the chip shows the typed name rather than "من أنت؟".
+    eq(run(a, 'document.getElementById("propose-who").textContent'), 'شخص جديد ٩٩',
+       'the bar shows the chosen name');
+  });
+
+  describe('picking a person is a node identity, and node wins over typed text', () => {
+    const a = bootUI({ role: 'propose' });
+    run(a, 'navigateToNode = function(){};');
+
+    // A person with a UNIQUE name, so a search yields exactly one row to click.
+    const uid = run(a, `(function () {
+      var c = {}; for (var id in state.people) { var n = state.people[id].name; c[n] = (c[n]||0)+1; }
+      for (var id in state.people) if (c[state.people[id].name] === 1 && id !== 'p1') return id;
+      return null;
+    })()`);
+    ok(!!uid, 'the tree has at least one uniquely-named person');
+    const uname = run(a, `state.people[${JSON.stringify(uid)}].name`);
+
+    // Search, then CLICK the row — which selects, and does NOT commit on its own.
+    run(a, `openWhoModal();
+            document.getElementById('who-search').value = ${JSON.stringify(uname)};
+            document.getElementById('who-search')._handlers.input[0]({});`);
+    const rows = run(a, 'document.getElementById("who-results").children.length');
+    ok(rows >= 1, 'the search finds the person', 'rows=' + rows);
+    run(a, 'document.getElementById("who-results").children[0].click();');
+    // Selection alone must not have closed the modal or set identity yet.
+    eq(run(a, 'FTPropose.me().node'), null, 'clicking a row selects but does not commit');
+    eq(run(a, 'document.getElementById("who-confirm").disabled'), false, 'confirm is enabled');
+
+    run(a, 'confirmWho();');
+    eq(run(a, 'FTPropose.me().node'), uid, 'confirm commits the picked node as identity');
+    eq(run(a, 'localStorage.getItem("ftMyName")'), null, 'and clears any free-text name');
+
+    // Typing an EXACT, UNIQUE name and confirming WITHOUT clicking still resolves to
+    // the node, so an in-tree person does not silently become node-less.
+    const b = bootUI({ role: 'propose' });
+    run(b, 'navigateToNode = function(){};');
+    run(b, `openWhoModal();
+            document.getElementById('who-search').value = ${JSON.stringify(uname)};
+            document.getElementById('who-search')._handlers.input[0]({});
+            confirmWho();`);
+    eq(run(b, 'FTPropose.me().node'), uid, 'an exact unique name resolves to the node');
+  });
+
+  describe('me() precedence and setMyName', () => {
+    const a = bootUI({ role: 'propose' });
+    const uid = run(a, `(function () {
+      for (var id in state.people) if (id !== 'p1') return id; })()`);
+
+    // A node identity exists FIRST, so setMyName clearing it is actually observable.
+    run(a, `setHomeNode(${JSON.stringify(uid)});`);
+    eq(run(a, 'localStorage.getItem("ftHomeNode")'), uid, 'a node identity is set');
+
+    eq(run(a, 'FTPropose.setMyName("علياء")'), true, 'setMyName stores');
+    eq(run(a, 'FTPropose.me().name'), 'علياء', 'me() reflects the free-text name');
+    eq(run(a, 'FTPropose.me().node'), null, 'with no node');
+    eq(run(a, 'localStorage.getItem("ftHomeNode")'), null,
+       'and it CLEARED the prior node identity (the two are exclusive)');
+
+    // A node identity outranks a lingering free-text name: set both and node wins.
+    run(a, `localStorage.setItem('ftMyName', 'علياء'); setHomeNode(${JSON.stringify(uid)});`);
+    eq(run(a, 'FTPropose.me().node'), uid, 'a picked node wins over a typed name');
+    eq(run(a, 'FTPropose.me().identified'), true, 'still identified');
+
+    // Clearing both returns to unidentified.
+    run(a, `localStorage.removeItem('ftHomeNode'); FTPropose.setMyName('');`);
+    eq(run(a, 'FTPropose.me().identified'), false, 'empty name + no node is unidentified');
+    eq(run(a, 'FTPropose.me().name'), 'زائر', 'back to visitor');
+  });
+
   describe('the suite never writes to data/', () => {
     // The owner asked for the tree to be left alone. Everything above runs on
     // in-memory copies; this asserts it rather than trusting it.

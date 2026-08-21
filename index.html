@@ -189,10 +189,13 @@
   <div id="who-modal-overlay">
     <div id="who-modal">
       <div id="who-title">من أنت في الشجرة؟</div>
-      <div id="who-help">ابحث عن اسمك. اقتراحاتك سترسل باسمك.</div>
+      <div id="who-help">ابحث عن اسمك واختره، أو اكتب اسمك إن لم تكن في الشجرة بعد.</div>
       <input type="text" id="who-search" dir="auto" placeholder="اسمك · your name" autocomplete="off" />
       <div id="who-results"></div>
-      <button id="who-cancel" class="pb-btn ghost">لاحقاً</button>
+      <div id="who-actions">
+        <button id="who-cancel" class="pb-btn ghost">لاحقاً</button>
+        <button id="who-confirm" class="pb-btn" disabled>تأكيد</button>
+      </div>
     </div>
   </div>
 

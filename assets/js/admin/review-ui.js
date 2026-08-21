@@ -145,6 +145,55 @@ function uncommittedDecisionsBox(waiting) {
   return box;
 }
 
+/* The same box for TREE EDITS, which had no equivalent.
+
+   The indicator is clickable precisely so it can answer "unpublished — what?", and
+   for an edit it answered "لا اقتراحات قيد المراجعة ✓" — a tick, in a drawer about
+   proposals, while the bar it was opened from said 1 EDIT UNPUBLISHED. Reported by
+   the owner with a pending delete sitting in the log.
+
+   This is the identical defect the comment in renderReviewList describes for
+   decisions, on the other axis: the drawer explains decisions and proposals, and a
+   tree edit is neither. `uncommittedDecisionsBox` mentions pending edits only in a
+   hint, and only when a decision is ALSO pending — so an edits-only state, which is
+   the common one, rendered nothing at all. */
+function uncommittedEditsBox(count) {
+  const box = document.createElement('div');
+  box.className = 'review-uncommitted';
+
+  const head = document.createElement('div');
+  head.className = 'ru-head';
+  head.textContent = '● ' + count + (count === 1 ? ' تعديل بانتظار COMMIT' : ' تعديلات بانتظار COMMIT');
+  box.appendChild(head);
+
+  // `describe` is precomputed at record time against the tree as it was, which is
+  // why it is shown verbatim rather than re-derived: the parent it names may since
+  // have been renamed or moved.
+  for (const e of FTChangeLog.entries()) {
+    const line = document.createElement('div');
+    line.className = 'ru-line';
+    line.textContent = e.describe || e.op;
+    box.appendChild(line);
+  }
+
+  const hint = document.createElement('div');
+  hint.className = 'ru-hint';
+  const blocked = FTReview.commitBlockedReason();
+  if (blocked) {
+    hint.textContent = 'COMMIT معطّل: مسودة هذا المتصفح تُخفي ' + blocked.missing.length +
+      ' شخصًا (' + blocked.names.join('، ') + ') وسيحذفهم النشر · اضغط DISCARD EDITS ثم أعد تحميل الصفحة';
+    hint.className = 'ru-hint blocked';
+  } else {
+    // Says what COMMIT does AND that it is safe to press, because the most common
+    // reason an edit is still sitting here is a publish that already landed and was
+    // reported as failed. publish() now recognises that instead of repeating it.
+    hint.textContent = 'اضغط COMMIT في شريط النشر · إن كان التعديل منشورًا بالفعل ' +
+      'فسيُكتشف ذلك ولن يُسجَّل مرتين';
+  }
+  box.appendChild(hint);
+  return box;
+}
+
 function renderReviewList() {
   const list = document.getElementById('review-list');
   list.textContent = '';
@@ -163,18 +212,27 @@ function renderReviewList() {
   const waiting = FTReview.uncommitted().length;
   if (waiting > 0) list.appendChild(uncommittedDecisionsBox(waiting));
 
+  // BOTH axes, for the same reason. An edit is not a proposal and not a decision, so
+  // nothing else in this drawer would ever mention it.
+  const edits = typeof FTChangeLog === 'undefined' ? 0 : FTChangeLog.count();
+  if (edits > 0) list.appendChild(uncommittedEditsBox(edits));
+
   if (all.length === 0) {
-    list.appendChild(reviewEmpty('لا اقتراحات بعد'));
+    // Not a bare "لا اقتراحات بعد" while something is waiting: that is the state the
+    // owner hit, where the drawer read as "nothing here" over a dirty publish bar.
+    if (waiting === 0 && edits === 0) list.appendChild(reviewEmpty('لا اقتراحات بعد'));
     return;
   }
   // "لا اقتراحات قيد المراجعة ✓" means nothing needs a DECISION. It does not mean
   // nothing needs COMMIT, and printing the tick while decisions sat unpublished
   // made the drawer contradict the publish bar — the reviewer read the tick,
   // concluded everything was done, and could not see why the bar disagreed.
+  // The tick is now gated on edits too: it printed over 1 EDIT UNPUBLISHED.
   if (pending.length === 0) {
-    list.appendChild(reviewEmpty(waiting > 0
-      ? 'لا اقتراحات قيد المراجعة — لكن هناك قرارات لم تُنشر بعد'
-      : 'لا اقتراحات قيد المراجعة ✓'));
+    list.appendChild(reviewEmpty(
+      (waiting > 0 || edits > 0)
+        ? 'لا اقتراحات قيد المراجعة — لكن هناك عمل لم يُنشر بعد'
+        : 'لا اقتراحات قيد المراجعة ✓'));
   }
 
   for (const row of pending) list.appendChild(reviewCard(row));

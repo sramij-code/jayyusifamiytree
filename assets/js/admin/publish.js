@@ -472,7 +472,12 @@ async function commitFamily() {
     }
     // Before the status, which markFamilyDirty would otherwise overwrite.
     markFamilyDirty();
-    if (typeof renderReviewList === 'function' && FTReview.all().length) renderReviewList();
+    // Unconditionally, NOT `&& FTReview.all().length`. The drawer now also lists
+    // pending tree EDITS, which exist independently of the proposal inbox — so with
+    // an empty inbox the old guard skipped the re-render and left a box reading
+    // "1 تعديل بانتظار COMMIT" above a bar saying the edit was just published.
+    // Caught by the UI oracle, not by reading this line.
+    if (typeof renderReviewList === 'function') renderReviewList();
 
     const what = [];
     if (r.count) what.push(r.count + (r.count === 1 ? ' edit' : ' edits'));

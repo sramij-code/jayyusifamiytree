@@ -48,10 +48,27 @@ function uiConsistent(ctx) {
 
   // 1. No visible text may tell the user to press COMMIT while COMMIT cannot run.
   const commitDead = commit && commit.disabled;
-  const urging = /اضغط COMMIT لحفظه|اضغط COMMIT في شريط النشر لحفظها/.test(
+  const urging = /اضغط COMMIT لحفظه|اضغط COMMIT في شريط النشر/.test(
     txt('review-list') + ' ' + txt('review-status'));
   if (commitDead && urging) {
     bad.push('a message says "press COMMIT" while the COMMIT button is disabled');
+  }
+
+  // 1b. The drawer may not print its clean tick while ANY work is unpublished.
+  //
+  // This is the bug the owner reported by clicking "● 1 EDIT UNPUBLISHED" and being
+  // shown "لا اقتراحات قيد المراجعة ✓". The tick means "nothing needs a DECISION",
+  // but it is the whole content of a drawer opened to answer "unpublished what?", so
+  // it reads as "nothing is pending" — contradicting the indicator that opened it.
+  // The decisions half of this was fixed earlier; the edits half shipped anyway
+  // because the oracle only knew about decisions.
+  if (edits + decisions > 0 && /لا اقتراحات قيد المراجعة ✓/.test(txt('review-list'))) {
+    bad.push('the drawer prints the all-clear tick while ' + edits + ' edit(s) and ' +
+             decisions + ' decision(s) are unpublished');
+  }
+  // Same contradiction one branch over, for a browser whose inbox is empty.
+  if (edits + decisions > 0 && /لا اقتراحات بعد/.test(txt('review-list'))) {
+    bad.push('the drawer says there are no proposals at all while work is unpublished');
   }
 
   // 2. The button must agree with the guard it mirrors.
@@ -780,6 +797,143 @@ module.exports = function ({ describe, ok, eq }) {
         eq(new Set(after).size, after.length, 'every read across both loads is distinct');
       });
     });
+  });
+
+  describe('the same act recorded twice is still recognised as published', () => {
+    // The owner's actual state, and the reason a ts-only key is not enough. The
+    // pending entry describes the SAME deletion that landed as ee9270b, but it was
+    // recorded a second time (the reload lost the log, the proposal was approved
+    // again), so it carries a different `ts`. A ts-only check calls it unpublished
+    // and commits a second delete_person line for a person already gone.
+    //
+    // Not hypothetical: data/changes.jsonl already holds delete_person pg4gj1nbp
+    // four times across two distinct timestamps, which is this exact shape.
+    const ONBRANCH = { ts: '2026-08-20T23:42:58.442Z', by: 'ر', op: 'delete_person',
+                       target: 'phhcxmf4j', name: 'Rola1', describe: '− Rola1 (phhcxmf4j)',
+                       fromProposal: '71673773-072d-4e60-80bc-5165dc5a6ce0' };
+    // Same act, recorded 27 seconds later by a page that had lost the log.
+    const LOCAL    = { ts: '2026-08-20T23:43:25.001Z', by: 'ر', op: 'delete_person',
+                       target: 'phhcxmf4j', name: 'Rola1', describe: '− Rola1 (phhcxmf4j)',
+                       fromProposal: '71673773-072d-4e60-80bc-5165dc5a6ce0' };
+    const H = { get: () => null };
+    const R = o => Object.assign({ headers: H, text: async () => '', json: async () => ({}) }, o);
+    const b64 = s => Buffer.from(s, 'utf8').toString('base64');
+    const net = async (url, init) => {
+      const u = String(url), m = (init && init.method) || 'GET';
+      if (/rest\/v1\//.test(u)) return R({ ok: true, status: 201, json: async () => ([]) });
+      if (/contents\/data\/changes\.jsonl/.test(u)) {
+        return R({ ok: true, status: 200,
+                   json: async () => ({ content: b64(JSON.stringify(ONBRANCH) + '\n') }) });
+      }
+      if (/contents\/data\/proposals-reviewed\.json/.test(u)) return R({ ok: false, status: 404 });
+      if (/\/git\/ref\/heads\//.test(u)) {
+        return R({ ok: true, status: 200, json: async () => ({ object: { sha: 'ee9270b' } }) });
+      }
+      throw new TypeError('it tried to publish a deletion that had already happened: ' + m + ' ' + u);
+    };
+
+    const a = bootUI({ role: 'admin', store: { 'ftChangeLog:admin': JSON.stringify([LOCAL]) }, net });
+    run(a, "FTGitHub.setToken('fake-token');");
+    return run(a, `FTGitHub.publish(function(){}).then(
+        function (r) { return { ok: true, r: r }; },
+        function (e) { return { ok: false, msg: e.message }; })`).then(out => {
+      ok(out.ok, 'a re-recorded deletion is recognised, not republished',
+         JSON.stringify(out).slice(0, 200));
+      if (out.ok) eq(out.r.alreadyLanded, true, 'and reported as already published');
+      return run(a, 'commitFamily()').then(() => {
+        eq(run(a, 'FTChangeLog.count()'), 0, 'COMMIT clears it');
+      });
+    });
+  });
+
+  describe('a rename is never collapsed by the semantic key', () => {
+    // A→B→A is three real edits, and the third shares target and name with the first.
+    // Deduping on the act would delete a real line from the changelog, so rename is
+    // deliberately matched on its own timestamp only. The asymmetry is the point:
+    // a redundant rename line costs a line, a dropped one costs history.
+    const R1 = { ts: '2026-08-20T10:00:00.000Z', by: 'ر', op: 'rename', target: 'p3',
+                 to: 'باء', describe: '~ p3 → باء' };
+    const R2 = { ts: '2026-08-20T12:00:00.000Z', by: 'ر', op: 'rename', target: 'p3',
+                 to: 'ألف', describe: '~ p3 → ألف' };
+    const blobs = [];
+    const H = { get: () => null };
+    const R = o => Object.assign({ headers: H, text: async () => '', json: async () => ({}) }, o);
+    const b64 = s => Buffer.from(s, 'utf8').toString('base64');
+    const un64 = s => Buffer.from(s, 'base64').toString('utf8');
+    // The branch already carries the FIRST rename back to 'ألف' — same target, same
+    // name as R2. Only the timestamp differs.
+    const ONBRANCH = { ts: '2026-08-20T08:00:00.000Z', by: 'ر', op: 'rename', target: 'p3',
+                       to: 'ألف', describe: '~ p3 → ألف' };
+    const net = async (url, init) => {
+      const u = String(url), m = (init && init.method) || 'GET';
+      if (/rest\/v1\//.test(u)) return R({ ok: true, status: 201, json: async () => ([]) });
+      if (/contents\/data\/changes\.jsonl/.test(u)) {
+        return R({ ok: true, status: 200,
+                   json: async () => ({ content: b64(JSON.stringify(ONBRANCH) + '\n') }) });
+      }
+      if (/contents\/data\/proposals-reviewed\.json/.test(u)) return R({ ok: false, status: 404 });
+      if (/\/git\/ref\/heads\//.test(u) && m === 'GET') {
+        return R({ ok: true, status: 200, json: async () => ({ object: { sha: 'head' } }) });
+      }
+      if (/\/git\/commits\/head/.test(u)) {
+        return R({ ok: true, status: 200, json: async () => ({ sha: 'head', tree: { sha: 't0' } }) });
+      }
+      if (/\/git\/blobs/.test(u)) {
+        blobs.push(un64(JSON.parse(init.body).content));
+        return R({ ok: true, status: 201, json: async () => ({ sha: 'b' + blobs.length }) });
+      }
+      if (/\/git\/trees/.test(u)) return R({ ok: true, status: 201, json: async () => ({ sha: 't1' }) });
+      if (/\/git\/commits$/.test(u)) return R({ ok: true, status: 201, json: async () => ({ sha: 'c1' }) });
+      if (/\/git\/refs\/heads\//.test(u) && m === 'PATCH') {
+        return R({ ok: true, status: 200, json: async () => ({}) });
+      }
+      throw new TypeError('unexpected: ' + m + ' ' + u);
+    };
+
+    const a = bootUI({ role: 'admin', store: {
+      'ftChangeLog:admin': JSON.stringify([R1, R2]),
+    }, net });
+    run(a, "FTGitHub.setToken('fake-token');");
+    return run(a, `FTGitHub.publish(function(){}).then(
+        function (r) { return { ok: true, r: r }; },
+        function (e) { return { ok: false, msg: e.message }; })`).then(out => {
+      ok(out.ok, 'the publish goes through', JSON.stringify(out).slice(0, 200));
+      ok(!out.r || !out.r.alreadyLanded,
+         'a rename back to an earlier name is NOT mistaken for already published');
+      const log = blobs.filter(b => /"op":"rename"/.test(b))[0] || '';
+      eq(log.split('\n').filter(l => l.trim()).length, 3,
+         'all three renames are in the file — none collapsed');
+      ok(log.indexOf(R2.ts) !== -1, 'including the one that repeats an earlier name');
+    });
+  });
+
+  describe('clicking the indicator explains a pending EDIT', () => {
+    // Reported: clicking "● 1 EDIT UNPUBLISHED" showed "لا اقتراحات قيد المراجعة ✓".
+    // The drawer explained proposals and decisions; a tree edit is neither, so with
+    // an empty inbox it rendered a tick over a dirty publish bar.
+    const a = bootUI({ role: 'admin' });
+    run(a, `
+      var id = state.generateId();
+      state.people[id] = { id: id, name: 'مضاف', gender: 'male', generation: 3 };
+      FTChangeLog.record({ op: 'add_child', target: 'p2', id: id, name: 'مضاف',
+                           describe: '+ مضاف · ابن of p2' });
+    `);
+    eq(run(a, 'FTChangeLog.count()'), 1, 'one edit is pending');
+    eq(run(a, 'FTReview.uncommitted().length'), 0, 'and no decisions, so only the edit can explain the bar');
+
+    const state = a._doc.getElementById('family-state');
+    ok(/1 EDIT UNPUBLISHED/.test(state.visibleText()), 'the bar says so', state.visibleText());
+    ok(state.classList.contains('clickable'), 'and offers to explain itself');
+
+    run(a, 'renderReviewList();');
+    const drawer = a._doc.getElementById('review-list').visibleText();
+    ok(!/لا اقتراحات قيد المراجعة ✓/.test(drawer),
+       'the drawer no longer answers with a clean tick', drawer.slice(0, 120));
+    ok(!/^\s*لا اقتراحات بعد/.test(drawer),
+       'nor with "no proposals yet" and nothing else', drawer.slice(0, 120));
+    ok(/تعديل بانتظار COMMIT/.test(drawer), 'it names the pending edit', drawer.slice(0, 160));
+    ok(/مضاف/.test(drawer), 'and describes WHICH edit', drawer.slice(0, 200));
+    eq(uiConsistent(a).length, 0, 'and the whole UI agrees');
   });
 
   describe('the suite never writes to data/', () => {

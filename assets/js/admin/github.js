@@ -275,11 +275,42 @@ var FTGitHub = window.FTGitHub = (function () {
 
      A changelog entry's `ts` is assigned once in FTChangeLog.record() and stored,
      so it survives a reload and appears verbatim in the committed line. That makes
-     it a durable identity for the edit, which is what we actually want to ask
-     about: not "is the repo in the state I built" but "is my work in the repo".
+     it a durable identity for that particular WRITE.
+
+     But `ts` is not an identity for the ACT, and the difference is load-bearing.
+     Approving the same proposal twice — on two devices, or after a reload lost the
+     log — records two entries with two timestamps describing one deletion. The repo
+     proves it: `delete_person pg4gj1nbp` (Ola2) appears FOUR times in
+     data/changes.jsonl across TWO distinct timestamps. A ts-only key catches three
+     of those and misses the fourth, which is exactly the case that then publishes a
+     second line for a person already gone.
+
+     So each entry gets two keys, and matching either means the work is on the branch:
+
+       exact     ts+op+target+id       the same write, always safe to collapse
+       semantic  the act itself        the same act recorded twice
+
+     `rename` deliberately has NO semantic key. A→B→A is a legitimate history of
+     three real edits, and the third shares target and name with the first;
+     collapsing them would delete a real line from the changelog. applyOp already
+     refuses a rename that is a no-op, so a redundant rename line costs a line, not
+     correctness — whereas a dropped one costs history.
   --------------------------------------------------------------------------- */
-  function logFingerprint(e) {
-    return [e && e.ts, e && e.op, e && e.target, e && e.id].join('|');
+  function exactKey(e) {
+    return 'x|' + [e && e.ts, e && e.op, e && e.target, e && e.id].join('|');
+  }
+
+  function semanticKey(e) {
+    if (!e || !e.op) return null;
+    // An addition is identified by the person it creates. Ids are generated randomly
+    // per add, so the same id can only ever be the same addition.
+    if (e.op === 'add_child' || e.op === 'add_wife' || e.op === 'add_father') {
+      return e.id ? 'a|' + e.id : null;
+    }
+    // A deletion is identified by whom it removes. Deleting the same person twice is
+    // the same act: a re-add gets a fresh id, so this target cannot come back.
+    if (e.op === 'delete_person') return e.target ? 'd|' + e.target : null;
+    return null;   // rename: see above
   }
 
   function landedLogKeys(existing) {
@@ -289,9 +320,20 @@ var FTGitHub = window.FTGitHub = (function () {
       // A hand-edited or truncated line is skipped rather than throwing: treating
       // it as "not landed" is the safe direction, since it leads to a publish
       // attempt rather than to silently dropping an edit.
-      try { keys.add(logFingerprint(JSON.parse(line))); } catch (e) { /* skip */ }
+      try {
+        const e = JSON.parse(line);
+        keys.add(exactKey(e));
+        const s = semanticKey(e);
+        if (s) keys.add(s);
+      } catch (err) { /* skip */ }
     }
     return keys;
+  }
+
+  function isLanded(keys, e) {
+    if (keys.has(exactKey(e))) return true;
+    const s = semanticKey(e);
+    return !!s && keys.has(s);
   }
 
   // Every axis we mean to publish is already committed. Deliberately AND, not OR:
@@ -306,7 +348,7 @@ var FTGitHub = window.FTGitHub = (function () {
 
     if (logEntries.length > 0) {
       const keys = landedLogKeys(await fetchExistingLog());
-      editsLanded = logEntries.every(e => keys.has(logFingerprint(e)));
+      editsLanded = logEntries.every(e => isLanded(keys, e));
     }
     if (decisions.length > 0) {
       const committed = await fetchExistingReviewed();
@@ -535,10 +577,10 @@ var FTGitHub = window.FTGitHub = (function () {
           // git cannot tell those apart from three real edits, so the changelog —
           // the file whose whole job is to say what happened — misreports it.
           //
-          // Keyed on the same durable fingerprint as alreadyPublished(), so a
+          // Keyed on the same two fingerprints as alreadyPublished(), so a
           // partially-landed publish appends its remainder and nothing more.
           const already = landedLogKeys(existing);
-          const fresh = logEntries.filter(e => !already.has(logFingerprint(e)));
+          const fresh = logEntries.filter(e => !isLanded(already, e));
           const appended = (existing ? existing.replace(/\n*$/, '\n') : '') +
                            (fresh.length ? fresh.map(e => JSON.stringify(e)).join('\n') + '\n' : '');
           const familyBlob = await api(base + '/git/blobs', {

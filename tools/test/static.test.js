@@ -295,8 +295,13 @@ module.exports = function ({ describe, ok, eq }) {
                         ui.indexOf('\n}', ui.indexOf('function renderReviewList')));
     ok(/FTReview\.uncommitted\(\)\.length/.test(fn),
        'renderReviewList consults uncommitted decisions');
-    ok(/waiting > 0[\s\S]{0,200}لكن هناك قرارات لم تُنشر بعد/.test(fn),
-       'the empty-queue message stops claiming a clean tick when decisions are waiting');
+    // Both axes. The tick also printed over "1 EDIT UNPUBLISHED", because a tree
+    // edit is neither a proposal nor a decision and nothing in the drawer mentioned
+    // it — the owner clicked the indicator to ask "unpublished what?" and got a tick.
+    ok(/FTChangeLog\.count\(\)/.test(fn),
+       'and consults uncommitted tree edits');
+    ok(/waiting > 0 \|\| edits > 0[\s\S]{0,200}لكن هناك عمل لم يُنشر بعد/.test(fn),
+       'the empty-queue message stops claiming a clean tick when EITHER is waiting');
     // Assert the GUARD, not just the presence of the markup: replacing the
     // condition with `if (false)` leaves every string in the source, so a plain
     // grep for the class name cannot tell live code from dead code.
@@ -305,6 +310,12 @@ module.exports = function ({ describe, ok, eq }) {
     // tell live code from dead code.
     ok(/if \(waiting > 0\) list\.appendChild\(uncommittedDecisionsBox\(waiting\)\)/.test(fn),
        'the box is rendered only when decisions are actually waiting');
+    ok(/if \(edits > 0\) list\.appendChild\(uncommittedEditsBox\(edits\)\)/.test(fn),
+       'and the edits box only when edits are actually waiting');
+    // "no proposals yet" must not print over pending work either — that is the same
+    // contradiction one branch earlier.
+    ok(/waiting === 0 && edits === 0/.test(fn),
+       'the never-any-proposals message is gated on there being no pending work');
     ok(/\.review-uncommitted/.test(css), 'which admin.css styles');
 
     // The box lives in its own function, so it can render before the empty-inbox

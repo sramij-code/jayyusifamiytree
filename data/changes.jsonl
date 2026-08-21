@@ -25,3 +25,4 @@
 {"ts":"2026-08-20T23:42:58.442Z","by":"رامي","op":"delete_person","target":"phhcxmf4j","name":"Rola1","describe":"− Rola1 (phhcxmf4j)","fromProposal":"71673773-072d-4e60-80bc-5165dc5a6ce0"}
 {"ts":"2026-08-21T01:52:25.784Z","by":"رامي","op":"add_wife","target":"p7","id":"p4w84w53l","name":"Rima1","describe":"+ Rima1 · زوجة of واكد (p7)","fromProposal":"601d7f34-75ca-4876-90d1-fc0368ce1907"}
 {"ts":"2026-08-21T02:34:40.652Z","by":"رامي","op":"delete_person","target":"p4w84w53l","name":"Rima1","describe":"− Rima1 (p4w84w53l)","fromProposal":"8347c74b-dacb-41d9-aada-68a0875131e9"}
+{"ts":"2026-08-21T04:13:18.444Z","by":"Adham","op":"add_wife","target":"p8","id":"pazy1w1bw","name":"Heba2","describe":"+ Heba2 · زوجة of عساف (p8)","fromProposal":"108dc875-c827-4911-aa30-2d7167df121c"}

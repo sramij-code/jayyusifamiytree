@@ -23,3 +23,4 @@
 {"ts":"2026-08-20T22:55:08.509Z","by":"عادل","op":"add_wife","target":"p6","id":"phhcxmf4j","name":"Rola1","describe":"+ Rola1 · زوجة of محمود (p6)","fromProposal":"0b5aeaa4-131f-4444-8b7d-7dd0784ca911"}
 {"ts":"2026-08-20T23:37:56.868Z","by":"رامي","op":"delete_person","target":"pexyie4kp","name":"Mona2","describe":"− Mona2 (pexyie4kp)","fromProposal":"fa4951f9-e5db-4457-b2a6-a1e9a0bf1ef8"}
 {"ts":"2026-08-20T23:42:58.442Z","by":"رامي","op":"delete_person","target":"phhcxmf4j","name":"Rola1","describe":"− Rola1 (phhcxmf4j)","fromProposal":"71673773-072d-4e60-80bc-5165dc5a6ce0"}
+{"ts":"2026-08-21T01:52:25.784Z","by":"رامي","op":"add_wife","target":"p7","id":"p4w84w53l","name":"Rima1","describe":"+ Rima1 · زوجة of واكد (p7)","fromProposal":"601d7f34-75ca-4876-90d1-fc0368ce1907"}

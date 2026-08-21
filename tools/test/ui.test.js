@@ -1043,6 +1043,148 @@ module.exports = function ({ describe, ok, eq }) {
     });
   });
 
+  describe('the build readout says which code the page is running', () => {
+    // Four debugging rounds in two days ended in "hard reload and try again" with
+    // neither of us able to name the version in the browser. Pages serves assets with
+    // max-age=600 and rebuilds 10s–2min behind a push, so "I pushed a fix" and "the
+    // admin is running it" are separated by an unknown interval.
+    const a = bootUI({ role: 'admin' });
+
+    // 1. The sha algorithm IS git's. This is the load-bearing claim: if the header is
+    //    built from string length rather than BYTE length, every file containing an
+    //    Arabic name hashes wrong and the readout would report BEHIND forever.
+    const fs = require('fs');
+    const path = require('path');
+    const cp = require('child_process');
+    const { REPO } = require('./harness.js');
+    return run(a, `FTVersion.blobShaOf(${JSON.stringify(
+        fs.readFileSync(path.join(REPO, 'data/names.js'), 'utf8'))})`).then(mine => {
+      const theirs = cp.execSync('git hash-object data/names.js',
+                                 { cwd: REPO, encoding: 'utf8' }).trim();
+      eq(mine, theirs, 'blobShaOf reproduces git hash-object on a file full of Arabic');
+
+      // 2. classify() has exactly three answers, and a missing side is never
+      //    presented as agreement. Collapsing unknown into current is the same defect
+      //    as the publish bar printing TREE IN SYNC because it could not ask.
+      eq(run(a, "FTVersion.classify('aaa','aaa')"), 'current', 'equal shas are current');
+      eq(run(a, "FTVersion.classify('aaa','bbb')"), 'behind', 'different shas are behind');
+      eq(run(a, "FTVersion.classify(null,'bbb')"), 'unknown', 'no running sha is unknown');
+      eq(run(a, "FTVersion.classify('aaa',null)"), 'unknown', 'no branch sha is unknown');
+      eq(run(a, 'FTVersion.classify(null,null)'), 'unknown', 'neither is unknown');
+
+      // 3. The readout must not read as reassurance when it does not know.
+      run(a, `FTVersion.render({ state: 'unknown', sha: null, subject: null, reason: 'offline' })`);
+      const unknown = a._doc.getElementById('version-state').visibleText();
+      ok(/UNKNOWN/.test(unknown), 'unknown says so', unknown);
+      ok(!/CURRENT/.test(unknown), 'and never says CURRENT', unknown);
+
+      // 4. Behind names the remedy, because it is always the same remedy.
+      run(a, `FTVersion.render({ state: 'behind', sha: 'abc1234567', subject: 'Fix the thing',
+                                 running: 'r1', branch: 'b2' })`);
+      const behind = a._doc.getElementById('version-state');
+      ok(/BEHIND/.test(behind.visibleText()), 'behind says so', behind.visibleText());
+      ok(/abc1234/.test(behind.visibleText()), 'and names the tip sha', behind.visibleText());
+      ok(/Fix the thing/.test(behind.visibleText()), 'and the commit subject', behind.visibleText());
+      ok(behind.classList.contains('dirty'), 'and is styled as needing attention');
+      ok(/⌥⌘R|hard-reload/i.test(behind.title), 'the tooltip names the fix', behind.title);
+      ok(/Pages/.test(behind.title), 'and warns the deploy may simply not be done yet');
+
+      // 5. Current is quiet.
+      run(a, `FTVersion.render({ state: 'current', sha: 'def7654321', subject: 'Something',
+                                 running: 'x', branch: 'x' })`);
+      const cur = a._doc.getElementById('version-state');
+      ok(/CURRENT/.test(cur.visibleText()), 'current says so', cur.visibleText());
+      ok(!cur.classList.contains('dirty'), 'and is not styled as a problem');
+
+      // 6. A multi-line commit message is reduced to its subject: the readout sits in
+      //    a one-line bar, and my commit bodies run to twenty lines.
+      eq(run(a, `FTVersion.subjectOf('Subject line\\n\\nBody line one\\nBody line two')`),
+         'Subject line', 'only the subject is shown');
+    });
+  });
+
+  describe('the build check survives every kind of failure', () => {
+    // A readout that blanks or throws on error is a readout nobody trusts — and this
+    // one runs at boot, so a throw would take the admin page with it.
+    const H = { get: () => null };
+    const R = o => Object.assign({ headers: H, text: async () => '', json: async () => ({}) }, o);
+
+    // Case A: the branch is readable, the local re-read is not. The tip must still be
+    // shown — knowing WHICH commit main is at is useful even when the comparison fails.
+    const netA = async (url) => {
+      const u = String(url);
+      if (/rest\/v1\//.test(u)) return R({ ok: true, status: 201, json: async () => ([]) });
+      if (/api\.github\.com.*contents/.test(u)) return R({ ok: true, status: 200, json: async () => ({ sha: 'branchblob' }) });
+      if (/api\.github\.com.*commits/.test(u)) {
+        return R({ ok: true, status: 200,
+                   json: async () => ({ sha: 'ffff111', commit: { message: 'The tip commit\nbody',
+                                        committer: { date: '2026-08-21T00:00:00Z' } } }) });
+      }
+      if (/github\.js/.test(u)) return R({ ok: false, status: 404 });   // local re-read fails
+      return R({ ok: false, status: 404 });
+    };
+    const a = bootUI({ role: 'admin', net: netA });
+    return run(a, 'FTVersion.check()').then(r => {
+      eq(r.state, 'unknown', 'no local sha means unknown, not behind');
+      eq(r.sha, 'ffff111', 'but the tip sha is still reported');
+      eq(r.subject, 'The tip commit', 'with its subject');
+      ok(/could not re-read/.test(r.reason || ''), 'and the reason is named', r.reason);
+      run(a, 'FTVersion.render()');
+      const t = a._doc.getElementById('version-state').visibleText();
+      ok(/ffff111/.test(t), 'the readout still names the tip', t);
+      ok(!/CURRENT|BEHIND/.test(t), 'without claiming either verdict', t);
+
+      // Case B: api.github.com refuses (rate limit). Must not throw, must explain.
+      const netB = async (url) => {
+        const u = String(url);
+        if (/rest\/v1\//.test(u)) return R({ ok: true, status: 201, json: async () => ([]) });
+        if (/api\.github\.com/.test(u)) return R({ ok: false, status: 403 });
+        if (/github\.js/.test(u)) return R({ ok: true, status: 200, text: async () => 'x' });
+        return R({ ok: false, status: 404 });
+      };
+      const b = bootUI({ role: 'admin', net: netB });
+      return run(b, 'FTVersion.check()').then(r2 => {
+        eq(r2.state, 'unknown', 'a refused branch read is unknown');
+        ok(r2.running, 'the local sha was still computed', String(r2.running));
+        ok(/rate limit/.test(r2.reason || ''), 'and rate limiting is named, not reported as a bug', r2.reason);
+
+        // Case C: the network rejects outright. check() must resolve, never reject.
+        const netC = async () => { throw new TypeError('offline'); };
+        const c = bootUI({ role: 'admin', net: netC });
+        return run(c, `FTVersion.check().then(function(r){return {ok:true,state:r.state};},
+                                             function(e){return {ok:false,msg:e.message};})`)
+          .then(r3 => {
+            ok(r3.ok, 'check() resolves even with no network at all', JSON.stringify(r3));
+            eq(r3.state, 'unknown', 'reporting unknown');
+
+            // Case D: EVERY read is cache-busted, asserted on the URL rather than on
+            // the source. A grep for `_cb=` passes while the self-read alone is
+            // unbusted, because bust() is still there for the other calls — and the
+            // self-read is the one that matters most: served with max-age=600, an
+            // unbusted probe compares a CACHED copy of the file against the branch
+            // and reports BEHIND long after a reload fixed it.
+            const seen = [];
+            const netD = async (url) => {
+              seen.push(String(url));
+              return { headers: { get: () => null }, ok: false, status: 404,
+                       text: async () => '', json: async () => ({}) };
+            };
+            const d = bootUI({ role: 'admin', net: netD });
+            return run(d, 'FTVersion.check()').then(() => {
+              const probe = seen.filter(u => /admin\/github\.js/.test(u));
+              ok(probe.length > 0, 'the probe file was re-read', String(seen.length));
+              ok(probe.every(u => /[?&]_cb=/.test(u)),
+                 'the self-read is cache-busted', probe[0]);
+              const api = seen.filter(u => /api\.github\.com/.test(u));
+              ok(api.length > 0, 'and the branch was asked');
+              ok(api.every(u => /[?&]_cb=/.test(u)), 'those reads too', api[0]);
+              eq(new Set(seen).size, seen.length, 'and no two reads share a URL');
+            });
+          });
+      });
+    });
+  });
+
   describe('the suite never writes to data/', () => {
     // The owner asked for the tree to be left alone. Everything above runs on
     // in-memory copies; this asserts it rather than trusting it.

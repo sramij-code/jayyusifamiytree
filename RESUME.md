@@ -173,6 +173,45 @@ FTProposalStatus.checkFreshness().then(r => console.log(r));
 `fresh` + the id present means it is a VISIBILITY question, not a data one. Also check
 which page: `admin` and `index.html` keep separate drafts and I chased the wrong one.
 
+## 4c. Naming the version you are looking at (`assets/js/admin/version.js`)
+
+Four debugging rounds ended in "hard reload and try again" with neither the owner nor
+I able to state which code was in the browser. Pages serves assets with
+`cache-control: max-age=600` and rebuilds 10s-2min behind a push, so "I pushed a fix"
+and "the admin is running it" are separated by an unknown interval.
+
+The publish bar now carries a third readout, `#version-state`, beside the theme and
+tree ones:
+
+```
+o BUILD CURRENT . f747b6e "Remember an approval past the commit..."
+^ BUILD BEHIND . running older code . main is f747b6e "..."
+? BUILD UNKNOWN . main is f747b6e "..."
+```
+
+**It is exact, not a heuristic.** It computes the **git blob sha** of the deployed
+probe file the page actually loaded -- `sha1("blob " + byteLength + "\0" + bytes)` --
+and compares it with the sha git has for that path at the branch tip. Verified against
+`git hash-object` on four files including `data/names.js`. Byte length, never
+`str.length`: every file here carrying an Arabic name is multi-byte, and a header built
+from string length hashes wrong and would report BEHIND forever. That one is
+mutation-tested.
+
+Notes for anyone touching it:
+
+- the probe is `assets/js/admin/github.js`, chosen because it changes when the publish
+  logic changes. A rarely-edited probe would report "current" through real changes.
+- it works **unauthenticated** (public repo); a token only raises the rate limit from
+  60/hr to 5000/hr. A version readout that needs CONNECT GITHUB is useless in the
+  state where it is most needed.
+- `unknown` is a third answer and must never render as either of the others, the same
+  rule as `FTProposalStatus`.
+- it finally sets `window.FT_BUILD`, which `opslog.js` has read since it was written
+  and which was **always null** -- so every `ops_log` row before this carries no
+  version.
+- admin-only: it is listed in `ADMIN_ONLY` in `static.test.js` and must never be added
+  to `index.html`.
+
 ## 5. Traps that cost time today — do not relearn these
 
 - **A hard reload cannot be detected.** `PerformanceNavigationTiming.type` is

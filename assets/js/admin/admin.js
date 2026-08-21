@@ -11,6 +11,9 @@ function initEventListeners() {
   if (typeof initViewportWatch === 'function') initViewportWatch();
   // Tell the user if this page is showing older data than what is published.
   if (typeof initStaleDataCheck === 'function') initStaleDataCheck();
+  // …and which BUILD it is running, which is the other half of the same question.
+  // The data stamp says whether family.js is current; this says whether the CODE is.
+  if (typeof FTVersion !== 'undefined') FTVersion.init();
   // Publish-bar wiring first. These are the controls that get the work off
   // this device, so they must survive a failure in the tree wiring below —
   // otherwise a bug in the canvas means unpublished edits cannot be saved.

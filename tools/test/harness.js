@@ -262,6 +262,10 @@ function bootUI(opts) {
     // only touches documentElement.style, which the stub document provides.
     load('assets/js/theme.js');
     load('assets/js/admin/publish.js');
+    // Loaded in the page's order. initEventListeners() calls FTVersion.init(), which
+    // fires network reads — every one of them swallowed, so a suite whose fake net
+    // rejects unknown URLs is unaffected. That is the contract being relied on.
+    load('assets/js/admin/version.js');
     load('assets/js/admin/review-ui.js');
     load('assets/js/admin/admin.js');
     // Bind the REAL handlers, so a test clicks what a user clicks instead of

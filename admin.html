@@ -208,6 +208,10 @@
     <button id="btn-discard-family" class="pub-btn ghost" disabled>DISCARD EDITS</button>
     <button id="btn-reset-draft" class="pub-btn ghost">DISCARD THEME</button>
     <button id="btn-review" class="pub-btn">اقتراحات <span id="review-badge"></span></button>
+    <span class="pub-sep">|</span>
+    <!-- Which BUILD this page is running. Four debugging rounds ended in "hard
+         reload" without either of us being able to name the version in the browser. -->
+    <span id="version-state">&#8943; CHECKING BUILD</span>
     <span class="pub-note">tree edits commit straight to the repo &middot; theme downloads a file</span>
   </div>
 
@@ -268,6 +272,8 @@
   <script src="assets/js/changelog.js"></script>
   <script src="assets/js/admin/github.js"></script>
   <script src="assets/js/admin/publish.js"></script>
+  <!-- Diagnostic only; admin-only, so it is NOT added to index.html. -->
+  <script src="assets/js/admin/version.js"></script>
   <script src="assets/js/edit.js"></script>
   <script src="assets/js/admin/pickers.js"></script>
   <script src="assets/js/admin/presets.js"></script>

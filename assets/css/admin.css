@@ -204,6 +204,11 @@
    at all, so unsaved edits were invisible until the tab closed on them. */
 #family-state { letter-spacing: 1px; }
 #family-state.dirty { color: #b45309; font-weight: 700; }
+/* Which BUILD is running. Dimmer than the two state readouts either side of it:
+   it is a diagnostic, and it must not compete with 'you have unpublished work'.
+   It goes amber like the others only when it has something to report. */
+#version-state { letter-spacing: 1px; color: var(--accent-dim); }
+#version-state.dirty { color: #b45309; font-weight: 700; }
 .pub-sep { color: var(--sidebar-border); }
 
 .pub-btn {
@@ -465,6 +470,9 @@ body:not(.admin-mode) #app { padding-top: 0; }
     min-height: 44px; flex: 0 0 auto; white-space: nowrap;
   }
   #publish-state, #family-state { flex: 0 0 auto; white-space: nowrap; }
+  /* The commit subject is long; on a narrow bar it must not push the buttons
+     off-screen, so it is the one readout allowed to be dropped. */
+  #version-state { display: none; }
   /* It forced a whole row of its own, and it is desktop advice. */
   .pub-note { display: none; }
 

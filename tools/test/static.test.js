@@ -24,7 +24,7 @@ const CSS = ['assets/css/tokens.css', 'assets/css/base.css',
 // security boundary — a visitor with no credential cannot write to the repo.
 const ADMIN_ONLY = ['admin/github.js', 'admin/auth.js', 'admin/publish.js',
                     'admin/pickers.js', 'admin/presets.js', 'admin/admin.js',
-                    'admin/review.js', 'admin/review-ui.js'];
+                    'admin/review.js', 'admin/review-ui.js', 'admin/version.js'];
 
 // Created at runtime by JS, so absence from the markup is correct.
 const RUNTIME_IDS = new Set([
@@ -572,5 +572,51 @@ module.exports = function ({ describe, ok, eq }) {
          fn ? fn.name + ' has no previewIsLive check' : 'no enclosing function found');
     }
     ok(checked >= 2, 'found ' + checked + ' pushUndo sites to check (expected at least 2)');
+  });
+
+  describe('the build readout is wired, admin-only, and leaks nothing', () => {
+    // It exists so a version can be NAMED. Four debugging rounds ended in "hard
+    // reload" with the running version unknown to both of us.
+    const ver = read('assets/js/admin/version.js');
+    const code = codeOnly(ver);
+
+    // Wired: the file, the element it writes, and the call that starts it.
+    ok(refs(read('admin.html')).some(s => s.endsWith('admin/version.js')),
+       'admin.html loads it');
+    ok(/id="version-state"/.test(read('admin.html')), 'admin.html has the element it writes');
+    ok(/FTVersion\.init\(\)/.test(read('assets/js/admin/admin.js')),
+       'and admin.js starts it');
+    // Styled in both layouts, or it is invisible on one of them.
+    ok(/#version-state/.test(read('assets/css/admin.css')), 'and admin.css styles it');
+
+    // BYTE length, not string length. Every file in this repo carrying an Arabic name
+    // is multi-byte, so a header built from str.length hashes wrong and the readout
+    // would report BEHIND permanently. Asserted structurally because the arithmetic is
+    // the whole correctness of the module.
+    ok(/encode\(\'blob \' \+ body\.length/.test(code) || /'blob ' \+ body\.length/.test(code),
+       'the blob header is built from the encoded BYTE length');
+    ok(/TextEncoder/.test(code), 'via TextEncoder, not str.length');
+
+    // Never awaited by init(): a diagnostic must not delay or break a boot.
+    ok(/init: function[\s\S]{0,400}check\(\)\.then/.test(code),
+       'init() fires the check without awaiting it');
+
+    // It must not require a credential. The repo is public, and a version readout that
+    // only works after CONNECT GITHUB is useless in the state where it is most needed.
+    ok(/Authorization/.test(code), 'it uses a token when one exists');
+    ok(/if \(t\)/.test(code), 'but only conditionally, so it works unauthenticated');
+
+    // Same exclusions as opslog.js: FT_BUILD is published to a public table, so it
+    // must be a public blob sha and nothing else.
+    ok(/FT_BUILD = out\.running/.test(code),
+       'FT_BUILD is set from the blob sha of a public file');
+    ok(!/ftGitHubToken[^']*\+/.test(code), 'and never composed with the token');
+    ok(!/ADMIN_HASH/.test(code), 'nor the password hash');
+
+    // Cache-busted, or the freshness check reads a cached copy of itself — the most
+    // useless possible failure. Pages sends max-age=600 on assets.
+    ok(/_cb=/.test(code), 'every read is cache-busted');
+    ok(!/Cache-Control/.test(code),
+       'and NOT with a Cache-Control request header, which CORS refuses on api.github.com');
   });
 };

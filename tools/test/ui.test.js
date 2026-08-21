@@ -1397,6 +1397,34 @@ module.exports = function ({ describe, ok, eq }) {
     eq(run(a, 'FTPropose.me().name'), 'زائر', 'back to visitor');
   });
 
+  describe('starting a proposal does not re-ask who you are once identified', () => {
+    // Reported: with a name already shown in the bar, pressing "start proposal"
+    // reopened the who-modal every time. The gate read ftHomeNode alone, so a
+    // free-text identity (ftMyName, no node) did not count as identified.
+    const overlayVisible = ctx =>
+      run(ctx, "document.getElementById('who-modal-overlay').classList.contains('visible')");
+    const toggle = ctx => run(ctx, "document.getElementById('propose-toggle').click();");
+
+    // 1. No identity → the modal SHOULD open, as before.
+    const a = bootUI({ role: 'propose' });
+    toggle(a);
+    eq(overlayVisible(a), true, 'an unidentified visitor is still asked');
+
+    // 2. Free-text identity → must NOT reopen.
+    const b = bootUI({ role: 'propose' });
+    run(b, "FTPropose.setMyName('عبد الله');");
+    toggle(b);
+    eq(run(b, 'FTPropose.isOn()'), true, 'propose mode turned on');
+    eq(overlayVisible(b), false, 'a free-text identity is not re-asked');
+
+    // 3. Node identity → must NOT reopen either.
+    const c = bootUI({ role: 'propose' });
+    const uid = run(c, "(function(){ for (var id in state.people) if (id!=='p1') return id; })()");
+    run(c, `setHomeNode(${JSON.stringify(uid)});`);
+    toggle(c);
+    eq(overlayVisible(c), false, 'a node identity is not re-asked');
+  });
+
   describe('the suite never writes to data/', () => {
     // The owner asked for the tree to be left alone. Everything above runs on
     // in-memory copies; this asserts it rather than trusting it.

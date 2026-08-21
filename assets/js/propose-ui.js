@@ -153,8 +153,11 @@ function initProposeUI() {
     const turningOn = !FTPropose.isOn();
     FTPropose.setOn(turningOn);
     // Ask who they are the first time, so proposals are never anonymous by
-    // accident. Only when they have not already claimed a node.
-    if (turningOn && !localStorageHasHome()) openWhoModal();
+    // accident — but only when they have NO identity yet. me().identified is true
+    // for a picked node OR a typed free-text name; the old check read ftHomeNode
+    // alone, so a free-text identity did not count and the modal reopened on every
+    // "start proposal" even though the name was already shown in the bar.
+    if (turningOn && !FTPropose.me().identified) openWhoModal();
     markProposeState();
   });
 
@@ -189,12 +192,6 @@ function initProposeUI() {
 
   initWhoModal();
   initSendModal();
-}
-
-// homeNodeId() falls back to the root, so it cannot distinguish "I am the root"
-// from "never chosen". Read the key directly for that.
-function localStorageHasHome() {
-  try { return !!localStorage.getItem('ftHomeNode'); } catch (e) { return false; }
 }
 
 // ---------------------------------------------------------------------------

@@ -936,6 +936,113 @@ module.exports = function ({ describe, ok, eq }) {
     eq(uiConsistent(a).length, 0, 'and the whole UI agrees');
   });
 
+  describe('an approved proposal does not come back while Pages catches up', () => {
+    // The root cause of the duplicate Rola1 edit, and the widest window of the three.
+    //
+    // A commit is on the branch instantly; the GitHub PAGES build that serves
+    // data/changes.jsonl takes 10s to ~2min. commitFamily() clears the changelog on
+    // success, and that log was the only local record that the proposal was approved.
+    // So for the length of the deploy, `applied` is empty from BOTH sources and the
+    // card returns to the queue with a live APPROVE button. Cache-busting cannot
+    // help: there is nothing newer to fetch yet.
+    //
+    // ops_log timeline: ee9270b committed 23:43:04, draft_saved_at 23:43:21.913 —
+    // a second edit recorded 15 seconds after the successful publish.
+    const PID = '71673773-072d-4e60-80bc-5165dc5a6ce0';
+    const ENTRY = { ts: '2026-08-20T23:42:58.442Z', by: 'ر', op: 'delete_person',
+                    target: 'phhcxmf4j', name: 'Rola1', describe: '− Rola1 (phhcxmf4j)',
+                    fromProposal: PID };
+    const ROW = { id: PID, created_at: '2026-08-20T22:00:00Z', author_name: 'عادل',
+                  author_node: 'p302', note: null, withdraws: null,
+                  ops: [{ op: 'delete_person', target: 'phhcxmf4j' }] };
+
+    const H = { get: () => null };
+    const R = o => Object.assign({ headers: H, text: async () => '', json: async () => ({}) }, o);
+    const b64 = s => Buffer.from(s, 'utf8').toString('base64');
+    // THE DEPLOY LAG: the branch (api.github.com) has the line, the deployed site
+    // (same-origin data/changes.jsonl) does not. That skew is the whole fixture.
+    const net = async (url, init) => {
+      const u = String(url), m = (init && init.method) || 'GET';
+      if (/rest\/v1\/ops_log/.test(u)) return R({ ok: true, status: 201, json: async () => ([]) });
+      if (/rest\/v1\/proposals/.test(u)) return R({ ok: true, status: 200, json: async () => ([ROW]) });
+      if (/api\.github\.com/.test(u) && /contents\/data\/changes\.jsonl/.test(u)) {
+        return R({ ok: true, status: 200,
+                   json: async () => ({ content: b64(JSON.stringify(ENTRY) + '\n') }) });
+      }
+      if (/api\.github\.com/.test(u) && /proposals-reviewed/.test(u)) return R({ ok: false, status: 404 });
+      if (/api\.github\.com/.test(u) && /\/git\/ref\/heads\//.test(u)) {
+        return R({ ok: true, status: 200, json: async () => ({ object: { sha: 'ee9270b' } }) });
+      }
+      // Same-origin reads: still the PREVIOUS build.
+      if (/changes\.jsonl/.test(u)) return R({ ok: true, status: 200, text: async () => '' });
+      if (/proposals-reviewed\.json/.test(u)) return R({ ok: false, status: 404 });
+      if (/published\.json/.test(u)) return R({ ok: false, status: 404 });
+      throw new TypeError('unexpected: ' + m + ' ' + u);
+    };
+
+    // The state right after a successful publish: log cleared, deployed file stale.
+    // ONE store object, shared by both boots — that is what makes the second bootUI a
+    // RELOAD of the same browser rather than a different machine, which is the whole
+    // scenario. (harness.boot: "Pass the SAME object".)
+    const store = { 'ftChangeLog:admin': JSON.stringify([ENTRY]) };
+    const a = bootUI({ role: 'admin', store, net });
+    run(a, "FTGitHub.setToken('fake-token');");
+
+    return run(a, 'FTGitHub.publish(function(){}).then(function(r){return r;},function(e){return {err:e.message};})')
+      .then(r => {
+        ok(!r.err, 'the publish is recognised as already landed', JSON.stringify(r).slice(0, 160));
+        return run(a, 'commitFamily()');
+      })
+      .then(() => {
+        eq(run(a, 'FTChangeLog.count()'), 0, 'the log is cleared, as it should be');
+        // The record that has to survive it.
+        eq(run(a, 'FTReview.appliedLocally()'), [PID],
+           'but the approval is remembered past the clear');
+
+        // Now reload: the deployed file STILL lacks the line.
+        const b = bootUI({ role: 'admin', store, net });
+        return run(b, 'FTReview.load()').then(() => {
+          const rows = run(b, 'FTReview.all().map(function(r){return {id:r.id,s:r._state};})');
+          eq(rows.length, 1, 'the proposal is still in the inbox');
+          eq(rows[0].s, 'approved',
+             'and reads APPROVED, not pending — so it cannot be approved a second time');
+          eq(run(b, 'FTReview.buttonState().count'), 0, 'nothing is offered for review');
+          run(b, 'renderReviewList();');
+          eq(uiConsistent(b).length, 0, 'and the UI is coherent');
+        });
+      });
+  });
+
+  describe('a failed read never prunes what this device published', () => {
+    // The prune drops an id only if it was positively seen in the deployed file, so a
+    // read that failed prunes nothing. Asserted rather than assumed: dropping the
+    // record on a failed read would reopen the window exactly when the site is
+    // unreachable and least able to correct itself.
+    const PID = 'p-fail-1';
+    const H = { get: () => null };
+    const R = o => Object.assign({ headers: H, text: async () => '', json: async () => ({}) }, o);
+    const net = async (url) => {
+      const u = String(url);
+      if (/rest\/v1\/ops_log/.test(u)) return R({ ok: true, status: 201, json: async () => ([]) });
+      if (/rest\/v1\/proposals/.test(u)) return R({ ok: true, status: 200, json: async () => ([]) });
+      // 500, not 404: unreadable, which is NOT "genuinely empty".
+      if (/changes\.jsonl/.test(u)) return R({ ok: false, status: 500 });
+      if (/proposals-reviewed\.json/.test(u)) return R({ ok: false, status: 404 });
+      if (/published\.json/.test(u)) return R({ ok: false, status: 404 });
+      throw new TypeError('unexpected: ' + u);
+    };
+    const a = bootUI({ role: 'admin', store: {
+      'ftAppliedProposals': JSON.stringify([{ id: PID, at: '2026-08-20T23:43:04Z' }]),
+    }, net });
+    return run(a, 'FTReview.load()').then(() => {
+      eq(run(a, 'FTReview.appliedLocally()'), [PID],
+         'the record survives a read that failed');
+      ok(run(a, 'FTReview.buttonState().partial') === true ||
+         run(a, "FTReview.buttonState().state") !== 'clean',
+         'and the button does not claim clean when it could not ask');
+    });
+  });
+
   describe('the suite never writes to data/', () => {
     // The owner asked for the tree to be left alone. Everything above runs on
     // in-memory copies; this asserts it rather than trusting it.

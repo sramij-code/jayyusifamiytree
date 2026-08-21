@@ -133,6 +133,33 @@ defects, all in one causal chain, all now fixed and mutation-tested:
 Consequence for the error message: it now invites a retry, because a retry is safe.
 Do not "restore" the old don't-retry wording without also reverting 3.
 
+### 4a-bis. Why there was a second edit at all — the Pages deploy lag
+
+The above explains why the *retry* failed. It does not explain why an edit was
+pending after a successful commit, which is what the owner asked. The log answers it:
+`draft_saved_at 2026-08-20T23:43:21.913Z`, i.e. **15 seconds after `ee9270b` landed**.
+`saveDraft()` only runs from `record()`, so a new edit was recorded after the publish
+succeeded. The proposal was approved twice.
+
+Why it could be: a commit is on the branch instantly, but the **GitHub Pages build**
+that serves `data/changes.jsonl` takes 10s to ~2min. `commitFamily()` clears the
+changelog on success, and that log was the only local record of the approval. So for
+the length of the deploy, `applied` is empty from both sources and the card returns to
+the queue with a live APPROVE button. Cache-busting cannot help — there is nothing
+newer to fetch.
+
+`CLAUDE.md` already records this exact reasoning for review *decisions*
+("`markCommitted()` flags local entries instead of deleting them, because the
+committed file is served over HTTP and lags the commit by minutes"). The approvals
+axis never got it. Now fixed: `ftAppliedProposals` holds approved ids past the log
+clear, `FTGitHub.publish` writes it at all three success points via
+`FTReview.markApplied()`, and `load()` prunes an id only once it is positively
+observed in the deployed file — so a failed or torn read prunes nothing.
+
+An `app.ok` gate was written on that prune first and **removed**: a mutation showed no
+test could distinguish it, because a failed read yields no ids and therefore prunes
+nothing anyway. An unreachable guard reads as protection that is not there.
+
 ## 4b. Check freshness BEFORE assuming staleness
 
 Three rounds were spent chasing a cached file when the data was fine. One line settles

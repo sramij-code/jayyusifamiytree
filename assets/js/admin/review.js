@@ -37,6 +37,9 @@
 
 var FTReview = window.FTReview = (function () {
   const REJECTED_KEY  = 'ftRejectedProposals';   // local until committed
+  // Approved proposal ids, kept past the commit so the Pages deploy lag cannot
+  // re-offer an approved proposal. Pruned once the deployed file confirms them.
+  const APPLIED_KEY   = 'ftAppliedProposals';
   const REVIEWED_PATH = 'data/proposals-reviewed.json';
 
   // How many proposals the history view offers at once. The inbox only ever
@@ -84,6 +87,44 @@ var FTReview = window.FTReview = (function () {
 
   function writeLocalDecisions(list) {
     try { localStorage.setItem(REJECTED_KEY, JSON.stringify(list)); return true; }
+    catch (e) { return false; }
+  }
+
+  /* -------------------------------------------------------------------------
+     APPROVALS SURVIVE THE COMMIT, for exactly the reason decisions do.
+
+     markCommitted() flags a decision instead of deleting it, because the committed
+     file is served over HTTP and lags the commit by minutes — deleting would make a
+     decision vanish from the UI in between. The approvals axis never got the same
+     treatment, and the window it leaves is worse than cosmetic:
+
+       23:43:04  the delete of Rola1 is committed as ee9270b
+       23:43:06  commitFamily() clears the changelog on success, which is the ONLY
+                 local record that the proposal was approved
+       23:43:1x  the page is reloaded. data/changes.jsonl is fetched from GitHub
+                 PAGES, which has not rebuilt yet — the commit is on the branch, but
+                 the deployed file is the previous build. Cache-busting cannot help;
+                 there is nothing newer to fetch.
+       →         `applied` is empty from both sources, so the proposal re-derives to
+                 PENDING with a live APPROVE button
+       23:43:21  it is approved a second time, recording a duplicate edit
+                 (ops_log: draft_saved_at 23:43:21.913, 15s after the commit)
+       23:43:25  COMMIT again → four fast-forward refusals
+
+     Pages deploy takes 10s to ~2min, so this is a wide window, and re-approving is
+     the natural thing to do when a card comes back saying pending.
+
+     So remember approved proposal ids locally, past the commit, and stop only when
+     the deployed file confirms them. Ids only — no names, nothing that is not
+     already public in data/changes.jsonl.
+  ------------------------------------------------------------------------- */
+  function localApplied() {
+    return readLocal(APPLIED_KEY, [])
+      .filter(a => a && typeof a === 'object' && typeof a.id === 'string');
+  }
+
+  function writeLocalApplied(list) {
+    try { localStorage.setItem(APPLIED_KEY, JSON.stringify(list)); return true; }
     catch (e) { return false; }
   }
 
@@ -214,6 +255,23 @@ var FTReview = window.FTReview = (function () {
         for (const e of FTChangeLog.entries()) {
           if (e && e.fromProposal) applied.add(e.fromProposal);
         }
+      }
+      // The third source, and the one that covers the gap between the commit and the
+      // Pages rebuild: approvals this device has already published. See localApplied.
+      //
+      // PRUNE ONLY WHAT WAS POSITIVELY OBSERVED. An id is dropped only if it actually
+      // appears in the deployed file, so a read that failed (no ids at all) or came
+      // back torn (a subset) drops nothing it could not see. That is what makes this
+      // safe without an `app.ok` gate: "I could not ask" and "it is not there yet"
+      // both mean keep, which is the same branch. A gate was written here first and
+      // removed once a mutation showed no test could distinguish it — it was
+      // unreachable, and an unreachable guard reads as protection that is not there.
+      const localApp = localApplied();
+      for (const a of localApp) applied.add(a.id);
+      if (localApp.length) {
+        const confirmed = new Set(app.ids);
+        const keep = localApp.filter(a => !confirmed.has(a.id));
+        if (keep.length !== localApp.length) writeLocalApplied(keep);
       }
       appliedOk = app.ok;
       reviewedOk = rev.ok;
@@ -396,6 +454,27 @@ var FTReview = window.FTReview = (function () {
     // collapses a reject and a reinstate that share a millisecond, has already
     // shipped once; a second copy of the format is a second chance to reintroduce it.
     decisionKey: decisionKey,
+
+    // Called by FTGitHub.publish on success, with the changelog entries it published.
+    // The mirror of markCommitted: the log is about to be cleared, and the deployed
+    // data/changes.jsonl will not carry these for another minute or two, so without
+    // this the approvals are briefly invisible to both sources and the proposals come
+    // back as pending. Ids only.
+    markApplied: function (entries) {
+      const ids = [];
+      for (const e of entries || []) {
+        if (e && e.fromProposal && ids.indexOf(e.fromProposal) === -1) ids.push(e.fromProposal);
+      }
+      if (!ids.length) return true;
+      const have = localApplied();
+      const known = new Set(have.map(a => a.id));
+      const add = ids.filter(id => !known.has(id)).map(id => ({ id: id, at: new Date().toISOString() }));
+      if (!add.length) return true;
+      return writeLocalApplied(have.concat(add));
+    },
+
+    // For tests and diagnosis: what this device believes it has published.
+    appliedLocally: function () { return localApplied().map(a => a.id); },
 
     // The same decisions, described well enough to answer "1 DECISION
     // UNPUBLISHED — about what?". A bare count names a quantity and explains

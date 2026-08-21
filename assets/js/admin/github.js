@@ -528,6 +528,9 @@ var FTGitHub = window.FTGitHub = (function () {
         // the pending work stops being pending. Skipping this is what left the same
         // edit staged for a third attempt.
         if (pendingDecisions.length > 0) FTReview.markCommitted(pendingDecisions);
+        // Same reason, other axis: remember the approvals past the log clear, or the
+        // Pages deploy lag re-offers them as pending. See FTReview.markApplied.
+        FTReview.markApplied(logEntries);
         return { sha: ref.object.sha, count: edits, decisions: pendingDecisions.length,
                  branch: BRANCH, attempts: 0, alreadyLanded: true };
       }
@@ -675,6 +678,7 @@ var FTGitHub = window.FTGitHub = (function () {
                     via: 'race_but_landed' });
                 }
                 if (pendingDecisions.length > 0) FTReview.markCommitted(pendingDecisions);
+                FTReview.markApplied(logEntries);
                 return { sha: fresh.object.sha, count: edits,
                          decisions: pendingDecisions.length, branch: BRANCH,
                          attempts: attempt, alreadyLanded: true };
@@ -716,6 +720,9 @@ var FTGitHub = window.FTGitHub = (function () {
         // Only after the ref moved: until then nothing is durable, and flagging
         // early would leave a decision looking committed when it was not.
         if (pendingDecisions.length > 0) FTReview.markCommitted(pendingDecisions);
+        // Same reason, other axis: remember the approvals past the log clear, or the
+        // Pages deploy lag re-offers them as pending. See FTReview.markApplied.
+        FTReview.markApplied(logEntries);
 
         if (typeof FTLog !== 'undefined') {
           FTLog.emit('publish.commit.ok', { _kind: 'commit', _id: commit.sha.slice(0, 7),

@@ -472,10 +472,24 @@ module.exports = function ({ describe, ok, eq }) {
     const OURTREE = 'tree-ours';
     const H = { get: () => null };   // api() reads res.headers.get(...)
     const R = o => Object.assign({ headers: H, text: async () => '', json: async () => ({}) }, o);
+    // The decision as it appears in the COMMITTED file once the PATCH has landed.
+    // This is the realism the old fixture lacked: it modelled a branch whose ref had
+    // moved while data/proposals-reviewed.json never contained the decision, which
+    // cannot happen — the ref moves to a commit carrying that very blob. The old
+    // check compared tree shas and so did not care; the current one asks whether the
+    // work is in the file, so the fake has to be consistent about it.
+    const REVIEWED_AFTER = JSON.stringify({
+      version: 1,
+      decisions: [{ id: 'rr', decision: 'rejected', at: '2026-08-20T02:44:30Z', note: null, by: 'admin' }],
+    });
     const net = async (url, init) => {
       const u = String(url), m = (init && init.method) || 'GET';
       if (/changes\.jsonl/.test(u) && /api\.github/.test(u)) return R({ ok: false, status: 404, text: async () => '' });
-      if (/proposals-reviewed\.json/.test(u) && /api\.github/.test(u)) return R({ ok: false, status: 404, text: async () => '' });
+      if (/proposals-reviewed\.json/.test(u) && /api\.github/.test(u)) {
+        if (!patched) return R({ ok: false, status: 404, text: async () => '' });
+        return R({ ok: true, status: 200,
+                   json: async () => ({ content: Buffer.from(REVIEWED_AFTER, 'utf8').toString('base64') }) });
+      }
       if (/rest\/v1\/ops_log/.test(u)) return R({ ok: true, status: 201, json: async () => ([]) });
       if (/rest\/v1\/proposals/.test(u)) return R({ ok: true, status: 200, json: async () => ([]) });
       if (/changes\.jsonl|proposals-reviewed\.json/.test(u)) return R({ ok: false, status: 404, text: async () => '' });
@@ -527,11 +541,16 @@ module.exports = function ({ describe, ok, eq }) {
   describe('the exhausted-retry message no longer tells the user to retry blindly', () => {
     const src = require('fs').readFileSync(
       require('path').join(require('./harness.js').REPO, 'assets/js/admin/github.js'), 'utf8');
-    ok(!/press COMMIT again\.'/.test(src),
+    const code = codeOnly(src);   // the history is discussed in comments; assert on CODE
+    ok(!/press COMMIT again\.'/.test(code),
        'the old "press COMMIT again" advice is gone — that is what duplicated a landed commit');
-    ok(/would record it twice/.test(src), 'and it warns about exactly that');
-    ok(/reload the page: if the indicator goes clean/.test(src),
-       'telling the user how to check whether it landed');
+    // Retrying is safe NOW, and only because the code detects a landed publish by the
+    // identity of the work. The message may invite a retry precisely because of that,
+    // so what must hold is the promise that a retry cannot duplicate.
+    ok(/nothing was committed twice/.test(code),
+       'it promises the retry cannot duplicate what already landed');
+    ok(/will be recognised rather than repeated/.test(code),
+       'and says what happens if the work did land');
     // Every outcome of the publish path emits, or the log cannot answer this again.
     for (const ev of ['publish.commit.start', 'publish.commit.ok', 'publish.commit.fail']) {
       ok(src.indexOf(ev) !== -1, 'instrumented: ' + ev);
@@ -578,6 +597,189 @@ module.exports = function ({ describe, ok, eq }) {
       ok(!discard.disabled, 'the tooltip names DISCARD EDITS, so it must be usable');
     }
     eq(uiConsistent(a), [], 'and nothing in the UI contradicts');
+  });
+
+  /* -------------------------------------------------------------------------
+     THE ROLA1 INCIDENT, 2026-08-20 23:43, reproduced end to end.
+
+     Timeline from ops_log and git, one page load apart:
+
+       23:43:04  session 4cd80ef2 publishes the delete. It LANDS as ee9270b.
+       23:43:06  the client never registers the success, so commitFamily never
+                 clears the log and the edit is still pending.
+       23:43:25  the page is reloaded (session 2c23d06c) and COMMIT is pressed
+                 again — publishing an edit that is already on the branch.
+       23:43:40  four fast-forward refusals, and the owner is told the publish
+                 failed for the second time.
+
+     The landed-write probe inside publish() could not help: it only ever runs
+     after a PATCH in the SAME call. The question has to be asked before the first
+     attempt, and it has to be asked about the work rather than about the tree.
+  ------------------------------------------------------------------------- */
+  describe('an edit already on the branch is recognised, not committed again', () => {
+    const LANDED = { ts: '2026-08-20T23:42:58.442Z', by: 'رامي', op: 'delete_person',
+                     target: 'phhcxmf4j', name: 'Rola1', describe: '− Rola1 (phhcxmf4j)' };
+    const calls = [];
+    const H = { get: () => null };
+    const R = o => Object.assign({ headers: H, text: async () => '', json: async () => ({}) }, o);
+    const b64 = s => Buffer.from(s, 'utf8').toString('base64');
+
+    // Anything beyond a read THROWS. So "it did not try to commit" is enforced by
+    // construction rather than by counting afterwards: a publish that builds a blob
+    // fails this test loudly instead of quietly passing an assertion nobody wrote.
+    const net = async (url, init) => {
+      const u = String(url), m = (init && init.method) || 'GET';
+      calls.push(m + ' ' + u);
+      if (/rest\/v1\//.test(u)) return R({ ok: true, status: 201, json: async () => ([]) });
+      if (/contents\/data\/changes\.jsonl/.test(u)) {
+        return R({ ok: true, status: 200,
+                   json: async () => ({ content: b64(JSON.stringify(LANDED) + '\n') }) });
+      }
+      if (/contents\/data\/proposals-reviewed\.json/.test(u)) return R({ ok: false, status: 404 });
+      if (/\/git\/ref\/heads\//.test(u)) {
+        return R({ ok: true, status: 200, json: async () => ({ object: { sha: 'sha-landed' } }) });
+      }
+      throw new TypeError('publish tried to write when the work was already on the ' +
+                          'branch: ' + m + ' ' + u);
+    };
+
+    const a = bootUI({ role: 'admin', store: {
+      'ftChangeLog:admin': JSON.stringify([LANDED]),
+    }, net });
+    run(a, "FTGitHub.setToken('fake-token');");
+    eq(run(a, 'FTChangeLog.count()'), 1, 'the edit is still pending after the reload');
+
+    return run(a, `FTGitHub.publish(function(){}).then(
+        function (r) { return { ok: true, r: r }; },
+        function (e) { return { ok: false, msg: e.message }; })`).then(out => {
+      ok(out.ok, 'publish resolves instead of failing four times', JSON.stringify(out).slice(0, 200));
+      if (out.ok) {
+        eq(out.r.alreadyLanded, true, 'and reports that the work was already published');
+        eq(out.r.sha, 'sha-landed', 'naming the sha that actually carries it');
+        eq(out.r.attempts, 0, 'without a single write attempt');
+      }
+      eq(calls.filter(c => /^PATCH/.test(c)).length, 0, 'the branch was never moved');
+      eq(calls.filter(c => /\/git\/(blobs|trees|commits)/.test(c)).length, 0,
+         'and no commit was built — a second ee9270b was impossible');
+
+      // The consequence that ends the loop: pressing COMMIT clears the pending
+      // edit, so it stops being offered for a third attempt.
+      return run(a, 'commitFamily()').then(() => {
+        eq(run(a, 'FTChangeLog.count()'), 0, 'COMMIT clears the edit that had already landed');
+        ok(!run(a, 'FTChangeLog.hasDraft()'), 'and the draft protecting it');
+        const status = a._doc.getElementById('family-state').visibleText();
+        ok(/already/i.test(status),
+           'and says it was already published rather than claiming a new commit', status);
+        eq(uiConsistent(a).length, 0, 'the bar is coherent afterwards');
+      });
+    });
+  });
+
+  describe('a publish appends only the lines that are missing', () => {
+    // The last way left to duplicate published history permanently. data/changes.jsonl
+    // already carries four distinct ops written three times each — 9 of 25 lines
+    // redundant — because a landed approval was retried and the append was blind.
+    // git cannot tell those from three real edits.
+    const LANDED = { ts: '2026-08-20T23:42:58.442Z', by: 'ر', op: 'delete_person',
+                     target: 'phhcxmf4j', name: 'Rola1', describe: '− Rola1' };
+    const FRESH  = { ts: '2026-08-20T23:50:00.000Z', by: 'ر', op: 'rename',
+                     target: 'p3', name: 'x', describe: '~ x' };
+    const blobs = [];
+    const H = { get: () => null };
+    const R = o => Object.assign({ headers: H, text: async () => '', json: async () => ({}) }, o);
+    const b64 = s => Buffer.from(s, 'utf8').toString('base64');
+    const un64 = s => Buffer.from(s, 'base64').toString('utf8');
+
+    const net = async (url, init) => {
+      const u = String(url), m = (init && init.method) || 'GET';
+      if (/rest\/v1\//.test(u)) return R({ ok: true, status: 201, json: async () => ([]) });
+      if (/contents\/data\/changes\.jsonl/.test(u)) {
+        return R({ ok: true, status: 200,
+                   json: async () => ({ content: b64(JSON.stringify(LANDED) + '\n') }) });
+      }
+      if (/contents\/data\/proposals-reviewed\.json/.test(u)) return R({ ok: false, status: 404 });
+      if (/\/git\/ref\/heads\//.test(u) && m === 'GET') {
+        return R({ ok: true, status: 200, json: async () => ({ object: { sha: 'head' } }) });
+      }
+      if (/\/git\/commits\/head/.test(u)) {
+        return R({ ok: true, status: 200, json: async () => ({ sha: 'head', tree: { sha: 't0' } }) });
+      }
+      if (/\/git\/blobs/.test(u)) {
+        blobs.push(un64(JSON.parse(init.body).content));
+        return R({ ok: true, status: 201, json: async () => ({ sha: 'b' + blobs.length }) });
+      }
+      if (/\/git\/trees/.test(u)) return R({ ok: true, status: 201, json: async () => ({ sha: 't1' }) });
+      if (/\/git\/commits$/.test(u)) return R({ ok: true, status: 201, json: async () => ({ sha: 'c1' }) });
+      if (/\/git\/refs\/heads\//.test(u) && m === 'PATCH') {
+        return R({ ok: true, status: 200, json: async () => ({}) });
+      }
+      throw new TypeError('unexpected: ' + m + ' ' + u);
+    };
+
+    const a = bootUI({ role: 'admin', store: {
+      'ftChangeLog:admin': JSON.stringify([LANDED, FRESH]),
+    }, net });
+    run(a, "FTGitHub.setToken('fake-token');");
+
+    return run(a, `FTGitHub.publish(function(){}).then(
+        function (r) { return { ok: true, r: r }; },
+        function (e) { return { ok: false, msg: e.message }; })`).then(out => {
+      ok(out.ok, 'a partially-landed publish still goes through', JSON.stringify(out).slice(0, 200));
+      ok(!out.r || !out.r.alreadyLanded,
+         'and is NOT mistaken for fully landed — one line was genuinely missing');
+
+      // The changelog blob, identified by content rather than by position.
+      const log = blobs.filter(b => /"op":"delete_person"|"op":"rename"/.test(b))[0] || '';
+      const count = s => log.split(s).length - 1;
+      eq(count(LANDED.ts), 1, 'the line that was already committed appears exactly once');
+      eq(count(FRESH.ts), 1, 'and the new line is appended');
+      eq(log.split('\n').filter(l => l.trim()).length, 2, 'two lines total, not three');
+    });
+  });
+
+  describe('every read of the branch bypasses the browser cache', () => {
+    // Measured against the live API: GET /git/ref and GET /contents both answer
+    // `cache-control: public, max-age=60`. Without a buster the browser serves the
+    // next minute of reads itself, which silently defeated three separate things
+    // built on re-reading: the retry loop, the landed-write probe, and
+    // fetchExistingLog — where a stale read means appending to an outdated file and
+    // DROPPING whatever another commit added.
+    const H = { get: () => null };
+    const R = o => Object.assign({ headers: H, text: async () => '', json: async () => ({}) }, o);
+    const seen = [];
+    const net = async (url, init) => {
+      const u = String(url), m = (init && init.method) || 'GET';
+      if (/api\.github\.com/.test(u)) seen.push(m + ' ' + u);
+      if (/rest\/v1\//.test(u)) return R({ ok: true, status: 201, json: async () => ([]) });
+      if (/\/git\/ref\/heads\//.test(u)) {
+        return R({ ok: true, status: 200, json: async () => ({ object: { sha: 'h' } }) });
+      }
+      return R({ ok: false, status: 404 });
+    };
+
+    const a = bootUI({ role: 'admin', net });
+    run(a, "FTGitHub.setToken('fake-token');");
+    return run(a, 'FTGitHub.verify().then(function(){return 1;},function(){return 0;})').then(() => {
+      const gets = seen.filter(c => /^GET /.test(c));
+      ok(gets.length > 0, 'the branch was read');
+      ok(gets.every(c => /[?&]_cb=/.test(c)), 'every GET carries a cache buster', gets[0]);
+      eq(new Set(gets).size, gets.length, 'and no two reads share a URL');
+
+      // A SECOND page load must not reuse the first load's URLs. A bare counter
+      // restarts at 1, so the reloaded page's first read would hit the cached
+      // response from the previous page's first read — the exact reload-then-COMMIT
+      // path in the incident above.
+      const first = gets[0];
+      const b = bootUI({ role: 'admin', net });
+      run(b, "FTGitHub.setToken('fake-token');");
+      return run(b, 'FTGitHub.verify().then(function(){return 1;},function(){return 0;})').then(() => {
+        const after = seen.filter(c => /^GET /.test(c));
+        ok(after.length > gets.length, 'the second load also read the branch');
+        ok(after[after.length - 1] !== first,
+           'a reloaded page does not reuse the previous load\'s URL', after[after.length - 1]);
+        eq(new Set(after).size, after.length, 'every read across both loads is distinct');
+      });
+    });
   });
 
   describe('the suite never writes to data/', () => {

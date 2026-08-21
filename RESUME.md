@@ -75,22 +75,63 @@ documented.
 
 ## 3. State of the repo
 
-- `main` = `b6aa38c`, pushed, working tree clean, **882 checks green**
-- `release` = `f894be1`, **9 commits behind main, deliberately** — the owner said
-  "only work on main from now on, later I will ask you to move stuff to release"
+- `main` = the publish-idempotence fix, pushed, working tree clean, **920 checks green**
+- `release` = `f894be1`, **deliberately behind** — the owner said "only work on main
+  from now on, later I will ask you to move stuff to release"
 - Pages builds from **`main`**, so main pushes are live immediately
 - data snapshot: tag `data-snapshot-2026-08-20-b`, plus `/tmp/ft-data-snapshot/`
   with SHA256s. Re-baseline after any legitimate data commit.
 - run the suite: `node tools/test/run.js` (or one suite: `… run.js ui`)
+- live data is **1,746 people / 659 partnerships** again: Mona2 and Rola1 were
+  proposal-added (`a69a270`) and then deleted (`dd524fc`, `ee9270b`)
 
 ## 4. Owner actions still outstanding
 
-- **hard-reload `admin.html`** (`Option+Cmd+R`) — it is running a cached
-  `family.js` that predates Mona2/Rola1
-- **`index.html?fresh=1`** — that browser's propose draft still holds Mona1, who
-  was deleted in `67e2083`; she draws dashed because `.node-local` is working
-- the stale-data banner appears only after the **next publish** creates
-  `data/published.json`
+- the stale-data banner appears only after a publish creates `data/published.json`;
+  it now exists, so this is live
+- nothing else outstanding — the caching and duplicate-publish incidents below are
+  fixed in code, not waiting on a reload
+
+## 4a. The publish-idempotence incident (2026-08-20 23:43) — settled, read once
+
+The owner saw "the branch kept moving while publishing (4 attempts)" while approving
+a delete of Rola1. **The commit had already landed** (`ee9270b`). Four separate
+defects, all in one causal chain, all now fixed and mutation-tested:
+
+1. **GitHub's API is cacheable and the browser was caching it.**
+   `GET /git/ref` and `GET /contents/…` both answer `cache-control: public,
+   max-age=60`. So the retry loop's "re-read the ref" read Safari's cache, not
+   GitHub — all four attempts built on the same stale parent and were correctly
+   refused. `fetchExistingLog` had the same hole, which is a data-loss path: append
+   to a 60-second-stale changelog and you drop whatever landed in between.
+   Fixed with a `_cb=<per-load-tag>-<seq>` query param on every GET. **A query
+   param, not a `Cache-Control` header** — that header is not CORS-safelisted and
+   GitHub does not allow it, so adding it makes Safari refuse the request before
+   sending ("Load failed"). The tag must vary per page LOAD; a bare counter
+   restarts at 1 and collides with the previous load's first read.
+
+2. **The landed-write probe could never fire for an edit.** It compared the branch
+   tip's tree sha against the tree just built. `familyFileBody()` stamps
+   `publishedAt: new Date()` into `data/family.js` and the sidecar, so two publishes
+   of identical content produce different trees. It only ever worked for the
+   decisions-only commit it was tested against (`332dedd`).
+   Now asks by the **identity of the work**: is each changelog entry's `ts` already
+   in `data/changes.jsonl`, and each decision's `decisionKey` already in
+   `data/proposals-reviewed.json`. `ts` is assigned once in `record()` and survives
+   a reload, which is what makes it usable.
+
+3. **A lost success response left the edit pending forever.** The in-call probe
+   cannot help one page load later: PATCH lands → client misses it → the log is
+   never cleared → COMMIT is pressed again. `alreadyPublished()` now also runs
+   **before** the first attempt, so pressing COMMIT twice is safe by construction
+   rather than by asking the owner to reason about the indicator.
+
+4. **Blind append.** `data/changes.jsonl` carries four distinct ops written three
+   times each (9 of 25 lines redundant) from an older retry. The append is now
+   keyed on the same fingerprint, so it adds only missing lines.
+
+Consequence for the error message: it now invites a retry, because a retry is safe.
+Do not "restore" the old don't-retry wording without also reverting 3.
 
 ## 4b. Check freshness BEFORE assuming staleness
 
@@ -127,14 +168,22 @@ which page: `admin` and `index.html` keep separate drafts and I chased the wrong
   so it passed while an extras-only dead end shipped. It now sums both directions.
 - **A skipped check reads as a pass.** A class rename made a mobile touch-target
   assertion silently `~ skip`. Watch the skip count, not just failures.
+- **A fixture FOUND in `data/family.js` is a fixture that can be deleted.** The
+  wife-reachability test scanned the live tree for "a wife with no father"; deleting
+  Mona2 and Rola1 turned the suite red with no change to the code under test. Build
+  the shape the test needs — through the real op — instead of hoping the data still
+  contains it.
+- **`api.github.com` responses are cacheable** (`max-age=60`), and the browser
+  honours it across page loads. Any code here that re-reads to see a change needs
+  the `_cb` buster. See §4a.
 
 ## 6. Open findings from the two role reviews, not yet acted on
 
 Both agents' full findings are in the session transcript. Still open:
 
-- `github.js` **dedupe on append** — the last way to permanently duplicate
-  published history. `data/changes.jsonl` already contains 4 distinct lines
-  repeated 3× each (8 of 23 lines redundant), from the old repeated-approval path.
+- ~~`github.js` **dedupe on append**~~ — **done**, see §4a item 4. The nine
+  redundant lines already in `data/changes.jsonl` are history and were left alone;
+  new publishes cannot add more.
 - **unsnapshotted publish inputs**: `publish()` snapshots `edits`/`pendingDecisions`
   once but re-reads them live when building the bodies; `commitFamily` then clears
   the log unconditionally, so an edit made mid-publish is wiped unsent.

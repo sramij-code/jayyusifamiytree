@@ -391,6 +391,12 @@ var FTReview = window.FTReview = (function () {
     // browser.
     uncommitted: function () { return localDecisions().filter(d => !d.committed); },
 
+    // Exported so github.js can ask "is this decision already in the committed
+    // file?" using THIS formula rather than its own. The near-miss id@at, which
+    // collapses a reject and a reinstate that share a millisecond, has already
+    // shipped once; a second copy of the format is a second chance to reintroduce it.
+    decisionKey: decisionKey,
+
     // The same decisions, described well enough to answer "1 DECISION
     // UNPUBLISHED — about what?". A bare count names a quantity and explains
     // nothing, which is how a reviewer ends up unable to tell what COMMIT would

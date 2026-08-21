@@ -482,7 +482,19 @@ module.exports = function ({ describe, ok, eq }) {
       'ftChangeLog:admin': '[]',
       'ftRejectedProposals': JSON.stringify([{ id: 'r9', decision: 'rejected', at: '2026-08-17T19:00:00Z', note: null }]),
     };
-    const a = boot({ store, role: 'admin' });
+    // publish() now asks "is this already on the branch?" BEFORE building anything,
+    // which means it reads data/proposals-reviewed.json first. 404 is the honest
+    // answer here — nothing has been committed — and it has to be served, because a
+    // read that FAILS is a legitimate refusal and would mask the guard under test.
+    const H404 = { get: () => null };
+    const net = async (url) => {
+      const u = String(url);
+      if (/proposals-reviewed\.json|changes\.jsonl/.test(u)) {
+        return { ok: false, status: 404, headers: H404, json: async () => ({}), text: async () => '' };
+      }
+      throw new TypeError('no network in tests');
+    };
+    const a = boot({ store, role: 'admin', net });
     run(a, 'if (FTChangeLog.hasDraft()) FTChangeLog.applyDraft();');
     // applyDraft now RECONCILES, so the stale draft alone no longer leaves the
     // tree short. The guard still has to hold for a tree that is missing someone
@@ -499,10 +511,17 @@ module.exports = function ({ describe, ok, eq }) {
       return FTGitHub.publish(function(){}).then(
         function(){ return 'resolved'; }, function(e){ return 'threw: ' + e.message; });
     })()`).then(outcome => {
-      ok(!/Refusing to publish/.test(outcome),
+      // Named specifically, not by the shared "Refusing to publish" prefix: that
+      // prefix now also fronts "could not read the committed file", so a bare
+      // negative on it would pass or fail for reasons unrelated to this guard.
+      ok(!/draft is hiding/.test(outcome),
          'a decisions-only commit is not blocked by the stale-draft guard', outcome);
       ok(!/No changes to publish/.test(outcome),
          'and it is not treated as having nothing to publish', outcome);
+      // Positive proof it got past every guard and reached the commit path, rather
+      // than passing because it refused for some unrelated reason.
+      ok(/Could not reach api\.github\.com/.test(outcome),
+         'it got as far as reading the branch', outcome);
     });
   });
 

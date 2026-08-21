@@ -477,8 +477,15 @@ async function commitFamily() {
     const what = [];
     if (r.count) what.push(r.count + (r.count === 1 ? ' edit' : ' edits'));
     if (r.decisions) what.push(r.decisions + (r.decisions === 1 ? ' decision' : ' decisions'));
-    setFamilyStatus('✓ committed ' + what.join(' + ') + ' to ' + r.branch +
-                    ' · ' + r.sha.slice(0, 7));
+    // "committed" and "was already committed" are different facts, and conflating
+    // them is what made the owner press COMMIT a third time. Say which happened.
+    if (r.alreadyLanded) {
+      setFamilyStatus('✓ ' + what.join(' + ') + ' كان منشورًا بالفعل · already on ' +
+                      r.branch + ' (' + r.sha.slice(0, 7) + ') — nothing committed twice');
+    } else {
+      setFamilyStatus('✓ committed ' + what.join(' + ') + ' to ' + r.branch +
+                      ' · ' + r.sha.slice(0, 7));
+    }
   } catch (e) {
     // The draft and log are deliberately untouched on failure — a network
     // blip must not cost the edits.

@@ -110,10 +110,51 @@ var FTGitHub = window.FTGitHub = (function () {
     return new TextDecoder().decode(bytes);
   }
 
+  // EVERY GET here must be answered by GitHub, not by the browser's own cache.
+  //
+  // Measured, not assumed: `GET /git/ref/heads/main` and `GET /contents/...` both
+  // come back with `cache-control: public, max-age=60, s-maxage=60`. So for a full
+  // minute after any read, the browser answers the next identical read itself,
+  // without a request. Three separate things in this file were built on the
+  // assumption that a re-read sees the current branch, and all three were defeated
+  // by that one header:
+  //
+  //   · the retry loop. It re-reads the ref precisely because the branch may have
+  //     moved — and got the same cached sha every time. Observed 2026-08-20: four
+  //     attempts across 12s all built on a parent that was already stale, so all
+  //     four were correctly refused, and the owner was told the publish failed
+  //     while their commit (ee9270b) was sitting on main.
+  //   · the landed-write probe, which re-reads the ref to ask "did we already
+  //     win?" — from the cache, so it answered with the pre-move sha.
+  //   · fetchExistingLog. This is the dangerous one: reading a 60-second-stale
+  //     changes.jsonl and appending to it DROPS whatever another commit added in
+  //     between, which is the exact data loss its own comment promises to prevent.
+  //
+  // A query parameter, not a request header: `Cache-Control: no-cache` is not
+  // CORS-safelisted, and GitHub does not list it in Access-Control-Allow-Headers,
+  // so adding it makes the browser refuse the request before sending it — Safari
+  // reports that as an opaque "Load failed". GitHub ignores unrecognised query
+  // params (verified: 200 with `?_cb=…` on both endpoints).
+  //
+  // The tag must be unique per PAGE LOAD as well as per call. A plain counter
+  // restarts at 1 on reload, so a fresh page's first read collides with the
+  // previous page's first read and is served from cache — which is precisely the
+  // reload-then-press-COMMIT-again path in the incident above. A wall-clock stamp
+  // alone is not enough either: two loads inside the same millisecond collide.
+  const LOAD_TAG = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  let cbSeq = 0;
+  function bust(path) {
+    const tag = LOAD_TAG + '-' + (++cbSeq);
+    return path + (path.indexOf('?') === -1 ? '?' : '&') + '_cb=' + tag;
+  }
+
   async function api(path, options) {
     let res;
+    const method = (options && options.method) || 'GET';
     try {
-      res = await fetch(API + path, Object.assign({}, options, {
+      // Only GETs are cacheable, and only `path` is busted — every error message
+      // below quotes the clean path, so they stay readable.
+      res = await fetch(API + (method === 'GET' ? bust(path) : path), Object.assign({}, options, {
         headers: Object.assign({
           'Authorization': 'Bearer ' + token(),
           'Accept': 'application/vnd.github+json',
@@ -214,6 +255,67 @@ var FTGitHub = window.FTGitHub = (function () {
         e.message + '). Continuing would rewrite it from scratch and drop every ' +
         'committed decision. Your decisions are safe locally — try again.');
     }
+  }
+
+  /* ---------------------------------------------------------------------------
+     IS THIS WORK ALREADY ON THE BRANCH?
+
+     Asked by identity of the work, NOT by tree sha — that distinction is the
+     whole point, and getting it wrong is why the false failure came back after
+     it had supposedly been fixed.
+
+     The old probe compared the tip's tree sha against the tree we just built, on
+     the reasoning that identical content means identical trees. It cannot work
+     here: familyFileBody() stamps `publishedAt: new Date()` into data/family.js,
+     and the sidecar carries the same stamp. Two publishes of a byte-identical
+     TREE therefore produce two different blobs and two different tree shas, so
+     the comparison can only ever match for a decisions-only publish — which is
+     exactly the one case (332dedd, "Record 2 rejections") it was tested against.
+     Any publish carrying an edit slipped straight past it.
+
+     A changelog entry's `ts` is assigned once in FTChangeLog.record() and stored,
+     so it survives a reload and appears verbatim in the committed line. That makes
+     it a durable identity for the edit, which is what we actually want to ask
+     about: not "is the repo in the state I built" but "is my work in the repo".
+  --------------------------------------------------------------------------- */
+  function logFingerprint(e) {
+    return [e && e.ts, e && e.op, e && e.target, e && e.id].join('|');
+  }
+
+  function landedLogKeys(existing) {
+    const keys = new Set();
+    for (const line of String(existing || '').split('\n')) {
+      if (!line.trim()) continue;
+      // A hand-edited or truncated line is skipped rather than throwing: treating
+      // it as "not landed" is the safe direction, since it leads to a publish
+      // attempt rather than to silently dropping an edit.
+      try { keys.add(logFingerprint(JSON.parse(line))); } catch (e) { /* skip */ }
+    }
+    return keys;
+  }
+
+  // Every axis we mean to publish is already committed. Deliberately AND, not OR:
+  // a publish that landed its changelog but not its decisions is not done.
+  //
+  // Reads are allowed to throw. fetchExistingLog/fetchExistingReviewed refuse on
+  // anything but a 404, and if we cannot read the branch we must not guess in
+  // either direction — the publish would fail on the same read seconds later.
+  async function alreadyPublished(logEntries, decisions) {
+    let editsLanded = true;
+    let decisionsLanded = true;
+
+    if (logEntries.length > 0) {
+      const keys = landedLogKeys(await fetchExistingLog());
+      editsLanded = logEntries.every(e => keys.has(logFingerprint(e)));
+    }
+    if (decisions.length > 0) {
+      const committed = await fetchExistingReviewed();
+      // FTReview owns the key format. Duplicating the formula here is how the
+      // id@at-versus-id@at#decision bug happened once already.
+      const keys = new Set(committed.map(FTReview.decisionKey));
+      decisionsLanded = decisions.every(d => keys.has(FTReview.decisionKey(d)));
+    }
+    return editsLanded && decisionsLanded;
   }
 
   // The commit subject has to describe whichever axis actually changed, or a
@@ -347,6 +449,47 @@ var FTGitHub = window.FTGitHub = (function () {
         FTLog.emit('publish.commit.start', { edits: edits, decisions: pendingDecisions.length, branch: BRANCH });
       }
 
+      // ---- BEFORE building anything: has this already been published? --------
+      //
+      // The landed-write probe inside the catch below can only rescue a race that
+      // happens within one call to publish(). It cannot help the case that actually
+      // keeps happening, which is one page load further out:
+      //
+      //   the PATCH succeeds server-side → the client never registers it (slow
+      //   response, closed tab, reload) → commitFamily therefore never clears the
+      //   log → the edit is still pending after the reload → COMMIT is pressed
+      //   again → and now the branch is genuinely ahead of everything this page
+      //   knows, so all four attempts are refused and the owner is told the
+      //   publish failed for a second time.
+      //
+      // That is the 2026-08-20 Rola1 incident exactly: ee9270b landed at 23:43:06,
+      // a fresh page load started a second publish of the same edit at 23:43:25,
+      // and it failed four times. Nothing was lost and nothing was duplicated, but
+      // the only reason it was not duplicated is that the stale ref read made the
+      // PATCH fail — had the cache expired first, the same delete would have been
+      // committed twice.
+      //
+      // So ask first. This is also the only guard that makes pressing COMMIT twice
+      // safe, which is what every previous error message asked the owner to reason
+      // about by hand.
+      const logEntries = FTChangeLog.entries();
+      say('checking the branch…');
+      if (await alreadyPublished(logEntries, pendingDecisions)) {
+        const ref = await api(base + '/git/ref/heads/' + BRANCH, { method: 'GET' });
+        say('already published');
+        if (typeof FTLog !== 'undefined') {
+          FTLog.emit('publish.commit.ok', { _kind: 'commit', _id: ref.object.sha.slice(0, 7),
+            edits: edits, decisions: pendingDecisions.length, attempts: 0,
+            via: 'already_on_branch' });
+        }
+        // Flagging them is what lets commitFamily clear the log and the draft, so
+        // the pending work stops being pending. Skipping this is what left the same
+        // edit staged for a third attempt.
+        if (pendingDecisions.length > 0) FTReview.markCommitted(pendingDecisions);
+        return { sha: ref.object.sha, count: edits, decisions: pendingDecisions.length,
+                 branch: BRANCH, attempts: 0, alreadyLanded: true };
+      }
+
       for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
         if (attempt > 1) {
           // Wait before re-reading, and lengthen each time.
@@ -383,8 +526,21 @@ var FTGitHub = window.FTGitHub = (function () {
 
         if (edits > 0) {
           const existing = await fetchExistingLog();
+          // APPEND ONLY WHAT IS NOT ALREADY THERE.
+          //
+          // Blind concatenation is the last way left to duplicate published history
+          // permanently, and it has already done so: data/changes.jsonl carries four
+          // distinct ops written three times each, 9 of 25 lines redundant, from an
+          // approval that was retried after a commit the client thought had failed.
+          // git cannot tell those apart from three real edits, so the changelog —
+          // the file whose whole job is to say what happened — misreports it.
+          //
+          // Keyed on the same durable fingerprint as alreadyPublished(), so a
+          // partially-landed publish appends its remainder and nothing more.
+          const already = landedLogKeys(existing);
+          const fresh = logEntries.filter(e => !already.has(logFingerprint(e)));
           const appended = (existing ? existing.replace(/\n*$/, '\n') : '') +
-                           FTChangeLog.toJSONL() + '\n';
+                           (fresh.length ? fresh.map(e => JSON.stringify(e)).join('\n') + '\n' : '');
           const familyBlob = await api(base + '/git/blobs', {
             method: 'POST',
             body: JSON.stringify({ content: utf8ToBase64(familyFileBody()), encoding: 'base64' }),
@@ -460,13 +616,15 @@ var FTGitHub = window.FTGitHub = (function () {
           // would then have recorded the same decisions twice, because the client
           // still had them flagged uncommitted.
           //
-          // The tree sha is the check: if the branch tip already points at the exact
-          // tree we built, our content IS published.
+          // Asked by the identity of the work, not by tree sha. See alreadyPublished():
+          // family.js embeds a per-publish `publishedAt`, so the tree sha of an
+          // identical publish differs every time and the old comparison could not
+          // match for anything carrying an edit. It matched for 332dedd only because
+          // that commit was decisions-only.
           if (isFastForwardRace(e)) {
             try {
-              const fresh = await api(base + '/git/ref/heads/' + BRANCH, { method: 'GET' });
-              const head = await api(base + '/git/commits/' + fresh.object.sha, { method: 'GET' });
-              if (head.tree && head.tree.sha === tree.sha) {
+              if (await alreadyPublished(logEntries, pendingDecisions)) {
+                const fresh = await api(base + '/git/ref/heads/' + BRANCH, { method: 'GET' });
                 say('already published');
                 if (typeof FTLog !== 'undefined') {
                   FTLog.emit('publish.commit.ok', { _kind: 'commit',
@@ -494,12 +652,16 @@ var FTGitHub = window.FTGitHub = (function () {
               FTLog.emit('publish.commit.fail', { reason: 'fast_forward_exhausted',
                 attempts: ATTEMPTS, edits: edits, decisions: pendingDecisions.length });
             }
-            // Deliberately does NOT say "press COMMIT again": retrying blindly is what
-            // duplicates a commit that actually landed.
+            // Retrying is now SAFE, so say so. The old wording asked the owner to
+            // reload, read the indicator and infer whether their own commit had
+            // landed — a judgement the code can make and now does, both before the
+            // first attempt and after each lost race. Pressing COMMIT again either
+            // detects the work on the branch and clears it, or appends only the
+            // lines that are genuinely missing.
             throw new Error('The branch kept moving while publishing (' + ATTEMPTS +
-              ' attempts). Nothing was lost — your edits are still in the draft. ' +
-              'BEFORE retrying, reload the page: if the indicator goes clean, the ' +
-              'commit already landed and pressing COMMIT again would record it twice.');
+              ' attempts). Nothing was lost — your edits are still in the draft, and ' +
+              'nothing was committed twice. Wait a moment and press COMMIT again: if ' +
+              'the work did land, it will be recognised rather than repeated.');
           }
           if (typeof FTLog !== 'undefined') {
             FTLog.emit('publish.commit.fail', {

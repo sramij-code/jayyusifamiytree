@@ -221,24 +221,45 @@ module.exports = function ({ describe, ok, eq }) {
     // It affected only 2 people when found — both wives added through the app — because
     // all 1,746 imported people are recorded as male children. It affects every wife
     // added from here on.
+    // The fixture is BUILT, not found. It used to scan data/family.js for a wife
+    // with no father, which worked only because the two proposal-added wives
+    // happened to be in the tree that day — deleting them (dd524fc, ee9270b) turned
+    // this suite red without a line of the code under test changing. All 1,746
+    // imported people are recorded as male children, so the live tree can be, and
+    // now is, entirely free of the shape this test exists for.
     const committed = loadFamily();
     const child = new Set();
     for (const pp of committed.partnerships) for (const c of pp.children) if (c) child.add(c);
+
+    // Add her the way the app does, through the op the proposal flow applies, so
+    // this tests the real add-wife shape rather than a hand-built person.
+    const husband = Object.keys(committed.people)
+      .find(id => committed.people[id].gender === 'male' && child.has(id) &&
+                  committed.people[id].generation >= 2);
+    ok(!!husband, 'a husband to attach her to');
+    const NEWWIFE = 'ptestwife1';
+
     const fatherless = Object.keys(committed.people)
       .filter(id => committed.people[id].gender === 'female' && !child.has(id));
-    ok(fatherless.length > 0, 'the data has at least one wife with no father (' + fatherless.length + ')');
 
-    for (const w of fatherless) {
+    for (const w of fatherless.concat([NEWWIFE])) {
       const c = boot({ role: 'admin' });
+      if (w === NEWWIFE) {
+        const added = run(c, `FTReview.applyOp({ op: 'add_wife', target: ${JSON.stringify(husband)},
+                                                 id: ${JSON.stringify(NEWWIFE)}, name: 'زوجة اختبار' })`);
+        ok(added, 'a wife added through the real op');
+        eq(invariants(c), [], 'the tree is still valid after adding her');
+      }
+      const label = run(c, 'state.people[' + JSON.stringify(w) + '].name');
       run(c, 'resetView();');
       ok(!run(c, 'state.visibleNodes.has(' + JSON.stringify(w) + ')'),
-         committed.people[w].name + ' starts hidden on a collapsed tree');
+         label + ' starts hidden on a collapsed tree');
       run(c, 'ensureNodeVisible(' + JSON.stringify(w) + '); recomputeVisibleNodes();');
       ok(run(c, 'state.visibleNodes.has(' + JSON.stringify(w) + ')'),
-         committed.people[w].name + ' is revealed');
+         label + ' is revealed');
       // AND survives the recompute, which is what the old trailing add() did not.
       ok(run(c, '!!computeLayout()[' + JSON.stringify(w) + ']'),
-         committed.people[w].name + ' gets coordinates, so she actually draws');
+         label + ' gets coordinates, so she actually draws');
       ok(run(c, 'state.expandedNodes.size') > 1, 'by expanding her husband, not by a hack');
       eq(invariants(c), [], 'invariants hold');
     }

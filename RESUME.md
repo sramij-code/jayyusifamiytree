@@ -212,6 +212,44 @@ Notes for anyone touching it:
 - admin-only: it is listed in `ADMIN_ONLY` in `static.test.js` and must never be added
   to `index.html`.
 
+## 4d. THE ROOT FIX — family.js is loaded fresh, not served stale (`boot-family.js`)
+
+The recurring "admin commits, browser stays stale" was never fixed, only detected.
+Two agents traced it to one decision: `data/family.js` was a plain
+`<script src="data/family.js">` at a STABLE url. GitHub Pages stamps assets
+`max-age=600` and the browser layers its own disk cache, so a commit changed the
+file's contents but not its url, and a `<script src>` offers no way to force a
+refetch. `initState()` froze the stale global for the life of the page. Every prior
+mechanism (published.json sidecar, `checkFreshness`, the stale banner, the BUILD
+readout, the `_cb=` busting on API/version reads) only DETECTED the mismatch using
+small files it was allowed to cache-bust; the 300KB file that mattered was never
+busted. Measured this session: an admin tab two hours behind `main`.
+
+**The load-bearing fact that made the fix safe:** nothing reads `familyData` at
+parse time. Every reference is inside a function first called from `init()`
+(verified across state.js, changelog.js, proposal-status.js, interactions.js, and
+now guarded by a static test). So the real contract is "familyData exists before
+`init()`", not "before the next <script> parses".
+
+**The fix** (`assets/js/boot-family.js`, loaded by BOTH pages in place of the old
+tag): read the ~90-byte `published.json` (cache-busted, `no-store`), then inject
+`data/family.js?v=<publishedAt>`. The query is stable within a publish (repeat loads
+hit cache, no 300KB re-download) and changes on publish (a url neither the browser
+nor the CDN has seen → fetched fresh once). It exposes `window.FT_BOOT`, a promise
+that resolves when family.js has loaded; `viewer.js`/`admin.js` now gate `init()` on
+`Promise` of FT_BOOT + DOMContentLoaded. `file://` and offline fall straight back to
+the plain url (a `?v=` query 404s on a file url), i.e. exactly today's behaviour.
+
+**What it does and does NOT solve.** It defeats the browser disk cache and the Pages
+CDN `max-age`, so once Pages has DEPLOYED, an ordinary Cmd+R is fresh — no hard
+reload. It does NOT defeat the Pages *build* lag: for the 10s-2min before Pages
+redeploys, the sidecar still returns the old stamp, so an admin reloading inside that
+window still sees old data. Nothing can fix that — the new file is not deployed yet.
+
+**Do not** reintroduce a plain `<script src="data/family.js">`; a static test now
+fails on it in either HTML file. Do not add a top-level `familyData` read; a static
+test walks brace depth and fails on any read at module scope.
+
 ## 5. Traps that cost time today — do not relearn these
 
 - **A hard reload cannot be detected.** `PerformanceNavigationTiming.type` is

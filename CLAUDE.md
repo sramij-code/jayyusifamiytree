@@ -169,6 +169,13 @@ grows, so an uncapped list would eventually render every proposal ever sent on e
 ## Data model
 
 `data/family.js` defines `window.FT_FAMILY` and aliases it to a top-level `var familyData`.
+It is **not** loaded by a plain `<script src>` — `assets/js/boot-family.js` loads it
+**asynchronously** as `data/family.js?v=<publishedAt>` (the stamp read from
+`data/published.json`) so a commit is fetched fresh instead of served from the Pages/browser
+cache for up to 10 minutes. Consequence: `familyData` is **not guaranteed at script-parse
+time**, only before `init()` runs — `viewer.js`/`admin.js` await `window.FT_BOOT`. Never read
+`familyData` at module top level, and never re-add a plain `<script src="data/family.js">`
+(static tests fail on both).
 Schema:
 
 ```js

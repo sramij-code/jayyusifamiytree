@@ -1185,6 +1185,117 @@ module.exports = function ({ describe, ok, eq }) {
     });
   });
 
+  describe('boot-family.js loads fresh data instead of serving it stale', () => {
+    // The root-cause fix. data/family.js was a plain <script src> at a stable URL, so
+    // GitHub Pages (max-age=600) and the browser disk cache kept serving the
+    // pre-commit bytes; nothing forced a refetch and initState froze the stale global
+    // for the life of the page. Measured: an admin two hours behind the committed
+    // tree. boot-family.js reads the published.json stamp, then loads
+    // data/family.js?v=<stamp> — a URL that changes on publish, defeating both caches.
+    const vm = require('vm');
+    const fs = require('fs');
+    const path = require('path');
+    const { REPO } = require('./harness.js');
+    const SRC = fs.readFileSync(path.join(REPO, 'assets/js/boot-family.js'), 'utf8');
+
+    // Run the module in a fake browser and report what it injected. Scripts record
+    // their src; calling el.onload()/el.onerror() simulates the network completing.
+    function runBoot(opts) {
+      const injected = [];
+      const fetches = [];
+      const ctx = {
+        Promise, Date, encodeURIComponent, String, console,
+        location: { protocol: opts.protocol || 'https:' },
+      };
+      ctx.window = ctx;
+      if (opts.fetch !== null) {
+        ctx.fetch = opts.fetch || ((url, init) => {
+          fetches.push({ url: String(url), init });
+          return Promise.resolve({ ok: true, json: async () => opts.sidecar });
+        });
+      }
+      const mkEl = () => {
+        const el = {};
+        el.appendedTo = null;
+        return el;
+      };
+      const appendChild = el => { injected.push(el); };
+      ctx.document = {
+        head: { appendChild },
+        documentElement: { appendChild },
+        createElement: () => mkEl(),
+      };
+      vm.createContext(ctx);
+      vm.runInContext(SRC, ctx);
+      return { boot: ctx.window.FT_BOOT, injected, fetches };
+    }
+
+    const flush = () => new Promise(r => setTimeout(r, 0));
+
+    // 1. The happy path: sidecar has a stamp → family.js is loaded WITH ?v=<stamp>.
+    return (async () => {
+      const r1 = runBoot({ sidecar: { publishedAt: '2026-08-21T01:52:32.910Z' } });
+      // The sidecar itself must be cache-busted, or it hands back an old stamp.
+      eq(r1.fetches.length, 1, 'the sidecar is read once');
+      ok(/published\.json\?t=/.test(r1.fetches[0].url), 'sidecar is cache-busted', r1.fetches[0].url);
+      ok(r1.fetches[0].init && r1.fetches[0].init.cache === 'no-store',
+         'and fetched no-store');
+      await flush();
+      eq(r1.injected.length, 1, 'exactly one family.js script is injected');
+      ok(/data\/family\.js\?v=2026-08-21T01%3A52%3A32\.910Z/.test(r1.injected[0].src),
+         'family.js carries the stamp as ?v=, url-encoded', r1.injected[0].src);
+      // FT_BOOT must resolve only AFTER the injected script loads — init() awaits it.
+      let resolved = false;
+      r1.boot.then(() => { resolved = true; });
+      await flush();
+      ok(!resolved, 'FT_BOOT does not resolve before family.js has loaded');
+      r1.injected[0].onload();
+      await flush();
+      ok(resolved, 'and resolves once it has');
+
+      // 2. No sidecar yet (before the first publish, 404) → plain URL, no query.
+      const r2 = runBoot({ fetch: () => Promise.resolve({ ok: false }) });
+      await flush();
+      eq(r2.injected.length, 1, 'still loads family.js');
+      eq(r2.injected[0].src, 'data/family.js', 'plainly, with no ?v=');
+
+      // 3. The sidecar fetch rejects (offline mid-load) → plain URL, never hangs.
+      const r3 = runBoot({ fetch: () => Promise.reject(new Error('offline')) });
+      await flush();
+      eq(r3.injected.length, 1, 'a rejected fetch still loads family.js');
+      eq(r3.injected[0].src, 'data/family.js', 'plainly');
+      let r3resolved = false;
+      r3.boot.then(() => { r3resolved = true; });
+      r3.injected[0].onload();
+      await flush();
+      ok(r3resolved, 'and FT_BOOT still resolves');
+
+      // 4. file:// → NEVER fetch (it cannot), and NEVER a query (file:// + ?v= 404s).
+      const r4 = runBoot({ protocol: 'file:', fetch: () => { throw new Error('must not fetch'); } });
+      await flush();
+      eq(r4.fetches ? r4.fetches.length : 0, 0, 'no sidecar fetch over file://');
+      eq(r4.injected.length, 1, 'family.js is loaded');
+      eq(r4.injected[0].src, 'data/family.js', 'with the plain URL, so file:// resolves it');
+
+      // 5. No fetch at all (ancient engine) → plain URL, no throw.
+      const r5 = runBoot({ fetch: null });
+      await flush();
+      eq(r5.injected.length, 1, 'loads family.js with fetch unavailable');
+      eq(r5.injected[0].src, 'data/family.js', 'plainly');
+
+      // 6. The stamped URL itself failing (defensive) → fall back to the plain URL,
+      //    never leave the page with no data.
+      const r6 = runBoot({ sidecar: { publishedAt: '2026-08-21T09:00:00Z' } });
+      await flush();
+      eq(r6.injected.length, 1, 'stamped script injected first');
+      ok(/\?v=/.test(r6.injected[0].src), 'with the stamp', r6.injected[0].src);
+      r6.injected[0].onerror();   // the ?v= load fails
+      await flush();
+      eq(r6.injected.length, 2, 'a plain fallback is then injected');
+      eq(r6.injected[1].src, 'data/family.js', 'the plain URL');
+    })();
+  });
+
   describe('the suite never writes to data/', () => {
     // The owner asked for the tree to be left alone. Everything above runs on
     // in-memory copies; this asserts it rather than trusting it.

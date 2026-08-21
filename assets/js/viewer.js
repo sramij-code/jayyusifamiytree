@@ -73,4 +73,14 @@ function init() {
   setTimeout(() => fitToNodes([...state.visibleNodes], true), 100);
 }
 
-document.addEventListener('DOMContentLoaded', init);
+// init() reads familyData (via initState), which boot-family.js now loads
+// ASYNCHRONOUSLY so a commit is not served stale. So wait for BOTH: the DOM, and
+// window.FT_BOOT (the family-data load). Still hung off DOMContentLoaded — the test
+// harness drives init() directly and never fires that event, so this stays inert
+// there. FT_BOOT is absent over a bare file open with no boot-family.js in play;
+// Promise.resolve() then falls through to today's behaviour.
+document.addEventListener('DOMContentLoaded', function () {
+  var ready = (window.FT_BOOT && typeof window.FT_BOOT.then === 'function')
+    ? window.FT_BOOT : Promise.resolve();
+  ready.then(init, init);   // init on either outcome; FT_BOOT never rejects, but be safe
+});

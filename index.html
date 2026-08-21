@@ -215,7 +215,11 @@
 
   <script src="assets/vendor/d3.min.js"></script>
   <script src="data/names.js"></script>
-  <script src="data/family.js"></script>
+  <!-- Was <script src="data/family.js">. Now loaded via boot-family.js, which reads
+       the published.json stamp and fetches data/family.js?v=<stamp> so a commit is
+       actually seen instead of served stale for up to 10 min. init() awaits
+       window.FT_BOOT. See boot-family.js for the full reasoning. -->
+  <script src="assets/js/boot-family.js"></script>
   <script src="data/theme.js"></script>
   <div id="stale-data-banner" hidden></div>
   <script src="assets/js/theme.js"></script>

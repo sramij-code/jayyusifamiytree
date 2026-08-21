@@ -108,6 +108,68 @@ module.exports = function ({ describe, ok, eq }) {
     ok(src.some(s => s.endsWith('edit.js')), 'index.html DOES load edit.js (needed to propose)');
   });
 
+  describe('family data is loaded through the freshness bootstrap, not a stale <script>', () => {
+    // The root-cause fix for "admin commits, browser stays stale". data/family.js used
+    // to be a plain <script src> at a stable URL, which GitHub Pages (max-age=600) and
+    // the browser disk cache served stale after every publish. boot-family.js reads the
+    // published.json stamp and loads data/family.js?v=<stamp> instead.
+    for (const page of PAGES) {
+      // Strip HTML comments: the replacement tag's comment mentions the old
+      // <script src="data/family.js"> to explain the change, and a raw scan would
+      // match that prose.
+      const html = read(page).replace(/<!--[\s\S]*?-->/g, '');
+      // The plain tag must be GONE from both pages, or the fix is half-applied and the
+      // old cached load still wins the race.
+      ok(!/<script[^>]*src="data\/family\.js"/.test(html),
+         page + ': no plain <script src="data/family.js"> (it would load stale)');
+      ok(/<script[^>]*src="assets\/js\/boot-family\.js"/.test(html),
+         page + ': loads boot-family.js instead');
+    }
+    // The loader reads the sidecar and stamps the family URL.
+    const boot = read('assets/js/boot-family.js');
+    const code = codeOnly(boot);
+    ok(/published\.json\?t=/.test(code), 'the sidecar is fetched cache-busted');
+    ok(/no-store/.test(code), 'and no-store, so it is never itself stale');
+    ok(/family\.js\?v='/.test(code) || /family\.js\?v=' \+/.test(code) || /\?v=' \+ encodeURIComponent/.test(code),
+       'family.js is loaded with a ?v=<stamp> cache key');
+    ok(/file:/.test(code) && /injectPlain/.test(code),
+       'with a file:// / offline fallback to the plain URL');
+    ok(/window\.FT_BOOT/.test(code), 'and exposes window.FT_BOOT for init() to await');
+
+    // Both boot scripts must GATE init on FT_BOOT, or init() runs before the async
+    // family load and initState() reads an undefined global.
+    for (const f of ['assets/js/viewer.js', 'assets/js/admin/admin.js']) {
+      const src = codeOnly(read(f));
+      ok(/FT_BOOT/.test(src), f + ': init waits on FT_BOOT');
+      ok(/DOMContentLoaded/.test(src), f + ': still driven by DOMContentLoaded (inert in the harness)');
+      // The bare `DOMContentLoaded', init)` form would fire init before the data loads.
+      ok(!/addEventListener\('DOMContentLoaded',\s*init\)/.test(src),
+         f + ': does NOT call init directly on DOMContentLoaded');
+    }
+  });
+
+  describe('nothing reads familyData at parse time', () => {
+    // The whole fix rests on this: family.js is now loaded ASYNC, so any top-level
+    // read of familyData (outside a function) would hit an undefined global. Every
+    // reference must sit inside a function first called from init().
+    for (const f of ['assets/js/core/state.js', 'assets/js/changelog.js',
+                     'assets/js/proposal-status.js', 'assets/js/core/interactions.js']) {
+      const code = codeOnly(read(f));
+      // Walk each `familyData` occurrence; the brace depth at that point must be > 0
+      // (inside some function/block), never 0 (module top level).
+      let i = -1, bad = [];
+      while ((i = code.indexOf('familyData', i + 1)) !== -1) {
+        // skip the declaration form `var familyData` / `window.familyData =`
+        const before = code.slice(Math.max(0, i - 12), i);
+        if (/var\s+$/.test(before) || /window\.$/.test(before)) continue;
+        let depth = 0;
+        for (let j = 0; j < i; j++) { const c = code[j]; if (c === '{') depth++; else if (c === '}') depth--; }
+        if (depth <= 0) bad.push(f + ' @ ' + i + ' (depth ' + depth + ')');
+      }
+      ok(bad.length === 0, f + ': every familyData read is inside a function', bad.join('; '));
+    }
+  });
+
   describe('script order satisfies dependencies', () => {
     for (const page of PAGES) {
       const js = refs(read(page)).filter(u => u.startsWith('assets/js/'));

@@ -27,3 +27,13 @@
 {"ts":"2026-08-21T02:34:40.652Z","by":"رامي","op":"delete_person","target":"p4w84w53l","name":"Rima1","describe":"− Rima1 (p4w84w53l)","fromProposal":"8347c74b-dacb-41d9-aada-68a0875131e9"}
 {"ts":"2026-08-21T04:13:18.444Z","by":"Adham","op":"add_wife","target":"p8","id":"pazy1w1bw","name":"Heba2","describe":"+ Heba2 · زوجة of عساف (p8)","fromProposal":"108dc875-c827-4911-aa30-2d7167df121c"}
 {"ts":"2026-08-21T14:41:30.312Z","by":"admin","op":"delete_person","target":"pazy1w1bw","name":"Heba2","describe":"− Heba2 (pazy1w1bw)"}
+{"ts":"2026-08-22T03:19:30.852Z","by":"Layla","op":"add_child","target":"p1121","id":"pp2njs7xp","name":"Rawi","describe":"+ Rawi · ابن/ابنة of رامي (p1121)","fromProposal":"b9097e98-e8cc-44b8-95db-2541ffd31468"}
+{"ts":"2026-08-22T03:19:30.853Z","by":"Layla","op":"add_wife","target":"p1121","id":"psris04b1","name":"Heba","describe":"+ Heba · زوجة of رامي (p1121)","fromProposal":"b9097e98-e8cc-44b8-95db-2541ffd31468"}
+{"ts":"2026-08-22T03:19:30.855Z","by":"Layla","op":"delete_person","target":"psris04b1","name":"Heba","describe":"− Heba (psris04b1)","fromProposal":"b9097e98-e8cc-44b8-95db-2541ffd31468"}
+{"ts":"2026-08-22T03:19:30.856Z","by":"Layla","op":"add_wife","target":"p1121","id":"p14klc9t7","name":"Heba","describe":"+ Heba · زوجة of رامي (p1121)","fromProposal":"b9097e98-e8cc-44b8-95db-2541ffd31468"}
+{"ts":"2026-08-22T03:19:30.856Z","by":"Layla","op":"delete_person","target":"p14klc9t7","name":"Heba","describe":"− Heba (p14klc9t7)","fromProposal":"b9097e98-e8cc-44b8-95db-2541ffd31468"}
+{"ts":"2026-08-22T03:19:30.857Z","by":"Layla","op":"delete_person","target":"pp2njs7xp","name":"Rawi","describe":"− Rawi (pp2njs7xp)","fromProposal":"b9097e98-e8cc-44b8-95db-2541ffd31468"}
+{"ts":"2026-08-22T03:19:30.857Z","by":"Layla","op":"add_child","target":"p1121","id":"p4h9uzjdn","name":"Rawi","describe":"+ Rawi · ابن/ابنة of رامي (p1121)","fromProposal":"b9097e98-e8cc-44b8-95db-2541ffd31468"}
+{"ts":"2026-08-22T03:19:30.858Z","by":"Layla","op":"add_wife","target":"p1121","id":"p09cvigt7","name":"Heba","describe":"+ Heba · زوجة of رامي (p1121)","fromProposal":"b9097e98-e8cc-44b8-95db-2541ffd31468"}
+{"ts":"2026-08-22T03:19:56.773Z","by":"Layla","op":"add_child","target":"p1121","id":"ppb3he8hi","name":"Layla","describe":"+ Layla · ابن/ابنة of رامي (p1121)","fromProposal":"c22b1e1f-9c6e-468c-ab9d-8c56f5fdbc8c"}
+{"ts":"2026-08-22T03:19:56.776Z","by":"Layla","op":"add_child","target":"p1121","id":"pe7khs0ep","name":"Lana","describe":"+ Lana · ابن/ابنة of رامي (p1121)","fromProposal":"c22b1e1f-9c6e-468c-ab9d-8c56f5fdbc8c"}

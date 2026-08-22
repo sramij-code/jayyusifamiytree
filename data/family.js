@@ -10475,6 +10475,30 @@ window.FT_FAMILY = {
       "name": "مالك   ليث",
       "gender": "male",
       "generation": 10
+    },
+    "p4h9uzjdn": {
+      "id": "p4h9uzjdn",
+      "name": "Rawi",
+      "gender": "male",
+      "generation": 9
+    },
+    "p09cvigt7": {
+      "id": "p09cvigt7",
+      "name": "Heba",
+      "gender": "female",
+      "generation": 8
+    },
+    "ppb3he8hi": {
+      "id": "ppb3he8hi",
+      "name": "Layla",
+      "gender": "female",
+      "generation": 9
+    },
+    "pe7khs0ep": {
+      "id": "pe7khs0ep",
+      "name": "Lana",
+      "gender": "female",
+      "generation": 9
     }
   },
   "partnerships": [
@@ -18153,11 +18177,31 @@ window.FT_FAMILY = {
       "children": [
         "p1747"
       ]
+    },
+    {
+      "id": "pp7r5zxetp",
+      "partners": [
+        "p1121",
+        null
+      ],
+      "children": [
+        "p4h9uzjdn",
+        "ppb3he8hi",
+        "pe7khs0ep"
+      ]
+    },
+    {
+      "id": "pp9ofyarp9",
+      "partners": [
+        "p1121",
+        "p09cvigt7"
+      ],
+      "children": []
     }
   ],
   "loggedInUser": "p1",
   "root": "p1",
-  "publishedAt": "2026-08-21T14:41:33.376Z"
+  "publishedAt": "2026-08-22T03:20:00.608Z"
 };
 // Top-level `var` so the binding exists for classic scripts, not just as a
 // window property. Keeps the data layer swappable without touching core.
